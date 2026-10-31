@@ -100,7 +100,7 @@ func (m progressModel) View() string {
 		return m.spin.View() + " starting…\n"
 	}
 	var b strings.Builder
-	style, _ := engine.LookupStyle(g.Style)
+	style := engine.GenerationStyle(g)
 	b.WriteString(sTitle.Render("doctok ✨ ") + sBold.Render(g.Name) + sDim.Render("  ("+g.Key+")") + "\n")
 	fmt.Fprintf(&b, "%s%s %s\n", sLabel.Render("style"), style.Emoji, style.Name)
 	src := g.Source.Ref

@@ -61,6 +61,7 @@ func newRoot() *cobra.Command {
 		newOpenCmd(),
 		newRmCmd(),
 		newStylesCmd(),
+		newTrendsCmd(),
 		newUICmd(),
 	)
 	return root
@@ -77,6 +78,7 @@ func mainMenu(cmd *cobra.Command) error {
 			huh.NewOption("⚙️   Configure", "configure"),
 			huh.NewOption("📼  List generations", "list"),
 			huh.NewOption("💅  Browse styles", "styles"),
+			huh.NewOption("📈  Refresh TikTok trends", "trends"),
 			huh.NewOption("🖥️   Open the local UI", "ui"),
 		).Value(&choice),
 	))

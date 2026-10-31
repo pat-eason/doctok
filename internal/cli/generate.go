@@ -108,8 +108,8 @@ func runGenerate(cmd *cobra.Command, src string, f genFlags) error {
 			))
 		}
 		if !cmd.Flags().Changed("style") {
-			opts := make([]huh.Option[string], 0, len(engine.StyleCatalog))
-			for _, s := range engine.StyleCatalog {
+			opts := make([]huh.Option[string], 0, len(eng.Styles()))
+			for _, s := range eng.Styles() {
 				opts = append(opts, huh.NewOption(fmt.Sprintf("%s  %-26s %s", s.Emoji, s.Name, sDim.Render(s.Description)), s.ID))
 			}
 			groups = append(groups, huh.NewGroup(
@@ -292,7 +292,7 @@ func printSummary(eng *engine.Engine, g *engine.Generation) {
 	if cur, err := eng.Store.Get(g.Key); err == nil {
 		g = cur
 	}
-	style, _ := engine.LookupStyle(g.Style)
+	style := engine.GenerationStyle(g)
 	rows := [][2]string{
 		{"video", homeShort(g.Files["video"])},
 		{"length", fmt.Sprintf("%s · %dx%d · %.1f MB · %d scenes", fmtSecs(g.Video.DurationSeconds), g.Video.Width, g.Video.Height, float64(g.Video.SizeBytes)/1e6, g.Video.Scenes)},

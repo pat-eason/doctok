@@ -108,6 +108,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <input type="text" id="name" placeholder="auto-generated if blank">
         <label>Style</label>
         <div class="styles" id="styles"></div>
+        <div class="hint" id="trendsHint"></div>
         <div class="row">
           <div><label for="length">Length</label>
             <select id="length">
@@ -165,6 +166,7 @@ async function init() {
   if (!META.kling.has_credentials) { $('#dry').checked = true; $('#klingHint').textContent = 'No Kling credentials configured — dry runs only. Run `doctok configure` to add them.'; }
   else $('#klingHint').textContent = `Kling ${META.kling.model} · ${META.kling.resolution} · audio ${META.kling.audio?'on':'off'} · $${META.kling.unit_price_usd}/unit`;
   renderStyles();
+  if (META.trends) { const t = META.trends; $('#trendsHint').innerHTML = `${esc(t.source)} trend catalog · ${t.age_days} day${t.age_days===1?'':'s'} old` + (t.stale ? ' · <span class="warn">stale — run <code>doctok trends refresh</code></span>' : ''); }
   (await api('/api/generations')).forEach(g => GENS.set(g.key, g));
   renderGens();
   const es = new EventSource('/api/events');

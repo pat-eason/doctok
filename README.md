@@ -43,6 +43,7 @@ whatever you leave out when it's attached to a terminal. Pass flags for scripted
 | `resume [key]` | Continues an interrupted, failed or awaiting-approval generation. Finished stages, downloaded clips and **in-flight Kling tasks are reused**. |
 | `list` · `show [key]` · `open [key]` · `rm [key]` | Inventory, details and metrics, play the video, delete. |
 | `styles [-v]` | The style catalog. |
+| `trends [show \| refresh \| reset]` | Re-research current TikTok trends with Claude Code and rebuild the style presets (see below). |
 | `ui [--port] [--no-open]` | Local web UI (binds 127.0.0.1 only). |
 
 ## Artifacts & state
@@ -51,10 +52,13 @@ whatever you leave out when it's attached to a terminal. Pass flags for scripted
 ~/.doctok
 ├── config.json                 # settings (0600)
 ├── state.json                  # inventory + status + metrics of every generation
+├── trends.json · TRENDS.md     # refreshed style catalog + research report (optional)
+├── trends-history/             # archived catalogs and saved proposals
 └── <generation-key>/
     ├── DOC.md                  # copy of the input document
     ├── DISTILL.md              # Claude's distillation
     ├── SCRIPT.json             # the storyboard (scenes, dialogue, cuts)
+    ├── STYLE.json              # snapshot of the style preset used
     ├── VIDEO.mp4               # the final 1080×1920 H.264/AAC video
     ├── clips/                  # raw Kling clips (kept so re-assembly is free)
     └── work/                   # caption PNGs, filter graphs, scratch
@@ -166,6 +170,33 @@ What doctok does on every video:
 - Places captions in TikTok's UI-safe zones.
 - Skips slang that's misogynistic or hateful, and avoids real people, brands and IP.
 - Tags the output file as AI-generated. Label it as AI-generated when you post.
+
+## Keeping trends fresh
+
+TikTok formats and slang turn over fast, so the catalog can be refreshed:
+
+```sh
+doctok trends refresh                                   # merge: keep built-ins, add new / update stale presets
+doctok trends refresh --focus "duet formats, B2B tone"  # steer the research
+doctok trends refresh --replace --yes                   # research defines the whole catalog
+doctok trends show                                      # age, notes, sources
+doctok trends reset                                     # back to the built-in catalog
+```
+
+How a refresh works:
+1. Your local Claude Code runs with only `WebSearch` and `WebFetch` enabled and no MCP servers. You see each search and fetch as it happens.
+2. Claude researches the last 4–6 weeks of trends and returns presets plus dated trend notes and sources, constrained by a JSON schema.
+3. doctok refuses results produced without any web searches. It then validates and sanitizes every preset:
+   - strips URLs and other markup from text that flows into prompts
+   - enforces `9:16` and "no background music" in the Kling prompt suffix
+   - rescales the story beats to 100%
+   - clamps captions to TikTok's safe zones and fixes invalid colors
+   - removes banned slang
+4. You review a diff (added / updated / removed) before anything is applied. Proposals are saved under `~/.doctok/trends-history/` either way.
+
+Applying writes `~/.doctok/trends.json` and a readable `~/.doctok/TRENDS.md`, and archives
+the previous catalog. Each generation snapshots its style (`STYLE.json`), so a refresh never
+changes a run in progress. `doctor` warns once the catalog is more than 30 days old.
 
 ## Video assembly
 

@@ -72,6 +72,9 @@ type Engine struct {
 	// RetryBase is the first backoff after a retryable Kling error.
 	RetryBase time.Duration
 
+	stylesMu sync.Mutex
+	styles   []Style
+
 	billingOnce sync.Once
 	billing     string
 	billingErr  error
@@ -148,13 +151,13 @@ func (e *Engine) Create(ctx context.Context, req GenerateRequest) (*Generation, 
 	if err != nil {
 		return nil, err
 	}
-	styleID := req.Style
-	if styleID == "" {
-		styleID = e.Config.Video.Style
-	}
-	if _, err := LookupStyle(styleID); err != nil {
+	var style Style
+	if req.Style == "" {
+		style = e.DefaultStyle()
+	} else if style, err = e.Style(req.Style); err != nil {
 		return nil, err
 	}
+	styleID := style.ID
 	opts := GenerationOptions{
 		DryRun:        req.DryRun,
 		TargetSeconds: req.TargetSeconds,
@@ -236,6 +239,9 @@ func (e *Engine) Create(ctx context.Context, req GenerateRequest) (*Generation, 
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
+	}
+	if err := snapshotStyle(g.Dir, style); err != nil {
+		return nil, err
 	}
 	return g, nil
 }

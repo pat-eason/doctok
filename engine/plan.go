@@ -147,7 +147,7 @@ func (e *Engine) stageScript(ctx context.Context, g *Generation, obs Observer) e
 	if _, err := e.beginStage(g.Key, StageScript, obs); err != nil {
 		return err
 	}
-	style, err := LookupStyle(g.Style)
+	style, err := e.styleFor(g)
 	if err != nil {
 		return err
 	}

@@ -75,7 +75,7 @@ func runConfigure(cmd *cobra.Command) error {
 		modelOpts = append(modelOpts, huh.NewOption(m.Label, id))
 	}
 	styleOpts := []huh.Option[string]{}
-	for _, s := range engine.StyleCatalog {
+	for _, s := range eng.Styles() {
 		styleOpts = append(styleOpts, huh.NewOption(fmt.Sprintf("%s  %s — %s", s.Emoji, s.Name, s.Description), s.ID))
 	}
 

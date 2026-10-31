@@ -77,7 +77,7 @@ func (e *Engine) stageRender(ctx context.Context, g *Generation, sb *Storyboard,
 	if _, err := e.beginStage(g.Key, StageRender, obs); err != nil {
 		return err
 	}
-	style, err := LookupStyle(g.Style)
+	style, err := e.styleFor(g)
 	if err != nil {
 		return err
 	}
@@ -385,7 +385,7 @@ func (e *Engine) stageAssemble(ctx context.Context, g *Generation, sb *Storyboar
 	if err != nil {
 		return err
 	}
-	style, err := LookupStyle(g.Style)
+	style, err := e.styleFor(g)
 	if err != nil {
 		return err
 	}

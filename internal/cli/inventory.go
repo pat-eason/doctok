@@ -43,7 +43,7 @@ func newListCmd() *cobra.Command {
 			}
 			rows := [][]string{}
 			for _, g := range gens {
-				style, _ := engine.LookupStyle(g.Style)
+				style := engine.GenerationStyle(g)
 				kl := fmt.Sprintf("%.1f u / $%.2f", g.Kling.Units, g.Kling.CostUSD)
 				if g.Options.DryRun {
 					kl = "dry run"
@@ -136,7 +136,7 @@ func newShowCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(g)
 			}
-			style, _ := engine.LookupStyle(g.Style)
+			style := engine.GenerationStyle(g)
 			fmt.Println(sTitle.Render(g.Name) + "  " + statusBadge(g.Status))
 			kv := func(k, v string) { fmt.Println(sLabel.Render(k) + v) }
 			kv("key", g.Key)
@@ -285,12 +285,12 @@ func newStylesCmd() *cobra.Command {
 		Use:   "styles",
 		Short: "List video style presets",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eng, _ := openEngine()
-			def := engine.DefaultStyleID
-			if eng != nil {
-				def = eng.Config.Video.Style
+			eng, err := openEngine()
+			if err != nil {
+				return err
 			}
-			for _, s := range engine.StyleCatalog {
+			def := eng.DefaultStyle().ID
+			for _, s := range eng.Styles() {
 				mark := "  "
 				if s.ID == def {
 					mark = sOK.Render("★ ")
@@ -309,7 +309,15 @@ func newStylesCmd() *cobra.Command {
 				}
 				fmt.Println()
 			}
-			fmt.Println(sDim.Render("use: doctok generate <doc> --style <id>   ·   -v for details"))
+			info := eng.TrendsInfo()
+			age := fmt.Sprintf("%s catalog from %s (%d days old)", info.Source, info.GeneratedAt.Format("Jan 2 2006"), info.AgeDays)
+			if info.Stale {
+				age = sWarn.Render(age + " — run `doctok trends refresh`")
+			} else {
+				age = sDim.Render(age)
+			}
+			fmt.Println(age)
+			fmt.Println(sDim.Render("use: doctok generate <doc> --style <id>   ·   -v for details   ·   doctok trends refresh to re-research"))
 			return nil
 		},
 	}

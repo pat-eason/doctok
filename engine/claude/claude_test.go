@@ -107,3 +107,13 @@ func TestRunError(t *testing.T) {
 		t.Fatal("cost should still be reported on error")
 	}
 }
+
+func TestParseToolCalls(t *testing.T) {
+	calls := parseToolCalls([]byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"WebSearch","input":{"query":"q"}},{"type":"tool_use","name":"WebFetch","input":{"url":"https://x"}}]}}`))
+	if len(calls) != 2 || calls[0].Summary() != "search: q" || calls[1].Summary() != "fetch: https://x" {
+		t.Fatalf("%+v", calls)
+	}
+	if parseToolCalls([]byte(`{"type":"user"}`)) != nil {
+		t.Fatal("non-assistant lines have no tool calls")
+	}
+}

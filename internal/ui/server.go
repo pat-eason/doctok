@@ -115,7 +115,8 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"home":     s.home,
-		"styles":   engine.StyleCatalog,
+		"styles":   eng.Styles(),
+		"trends":   eng.TrendsInfo(),
 		"defaults": eng.Config.Video,
 		"kling": map[string]any{
 			"model": eng.Config.Kling.Model, "resolution": eng.Config.Kling.Resolution, "audio": eng.Config.Kling.Audio,

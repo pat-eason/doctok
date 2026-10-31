@@ -55,6 +55,7 @@ type DoctorReport struct {
 var DoctorCheckNames = []struct{ ID, Group, Name string }{
 	{"home", "doctok", "Artifact directory"},
 	{"config", "doctok", "Configuration"},
+	{"trends", "doctok", "TikTok trend catalog"},
 	{"ffmpeg", "doctok", "ffmpeg / ffprobe"},
 	{"claude-bin", "claude", "Claude Code CLI"},
 	{"claude-sub", "claude", "Claude subscription login"},
@@ -114,6 +115,18 @@ func (e *Engine) Doctor(ctx context.Context, opts DoctorOptions, onCheck func(Ch
 			return Check{Status: CheckWarn, Detail: "no config.json yet — using defaults + environment", Hint: "run `doctok configure` to save your choices"}
 		}
 		return Check{Status: CheckOK, Detail: fmt.Sprintf("%s · style=%s · %ds target", where, e.Config.Video.Style, e.Config.Video.TargetSeconds)}
+	})
+
+	run("trends", "doctok", "TikTok trend catalog", func() Check {
+		if _, err := e.LoadTrends(); err != nil {
+			return Check{Status: CheckWarn, Detail: err.Error() + " (using built-in styles)", Hint: "doctok trends reset, or doctok trends refresh"}
+		}
+		info := e.TrendsInfo()
+		detail := fmt.Sprintf("%d styles · %s %s (%d days old)", info.Styles, info.Source, info.GeneratedAt.Format("2006-01-02"), info.AgeDays)
+		if info.Stale {
+			return Check{Status: CheckWarn, Detail: detail, Hint: "TikTok moves fast — run `doctok trends refresh` to re-research current formats & slang"}
+		}
+		return Check{Status: CheckOK, Detail: detail}
 	})
 
 	ffOK := run("ffmpeg", "doctok", "ffmpeg / ffprobe", func() Check {

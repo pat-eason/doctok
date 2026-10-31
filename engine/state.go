@@ -400,7 +400,7 @@ func (s *Store) ReserveKey(base string, g *Generation) (string, error) {
 
 func reservedName(k string) bool {
 	switch k {
-	case "state.json", "config.json", "uploads", "logs":
+	case "state.json", "config.json", "uploads", "logs", "trends-history":
 		return true
 	}
 	return false
