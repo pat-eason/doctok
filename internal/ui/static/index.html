@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>doctok studio</title>
+<style>
+:root{
+  --bg:#0d0b14; --panel:#16131f; --panel2:#1d1929; --line:#2c2740; --text:#f3f0fa; --dim:#9a93b0;
+  --pink:#ff4fd8; --cyan:#00e5ff; --yellow:#ffe135; --green:#3ddc97; --red:#ff5a5f; --blue:#7aa2ff;
+  --grad:linear-gradient(90deg,var(--pink),var(--cyan));
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--cyan)}
+button,input,select{font:inherit;color:inherit}
+header{display:flex;align-items:center;gap:14px;padding:16px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(13,11,20,.92);backdrop-filter:blur(8px);z-index:5}
+.logo{font-weight:900;font-size:22px;letter-spacing:-.5px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.tag{color:var(--dim);font-size:13px}
+header .sp{flex:1}
+.btn{border:1px solid var(--line);background:var(--panel2);padding:8px 14px;border-radius:999px;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--pink)}
+.btn.primary{background:var(--grad);border:none;color:#0d0b14;font-weight:800}
+.btn.danger:hover{border-color:var(--red);color:var(--red)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px;padding:20px 24px;max-width:1500px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:1fr;padding:16px}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+h2{margin:0 0 12px;font-size:16px;letter-spacing:.2px}
+label{display:block;font-size:12px;color:var(--dim);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.6px}
+input[type=text],select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
+input[type=text]:focus,select:focus{border-color:var(--cyan)}
+.row{display:flex;gap:10px;align-items:center}
+.row > *{flex:1}
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:10px;text-align:center;color:var(--dim);font-size:13px;margin-top:8px;cursor:pointer}
+.drop.over{border-color:var(--pink);color:var(--text)}
+.styles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.style{border:1px solid var(--line);background:var(--panel2);border-radius:12px;padding:10px;cursor:pointer;min-height:76px}
+.style .e{font-size:20px}
+.style .n{font-weight:700;font-size:13px;margin-top:2px}
+.style .d{font-size:11.5px;color:var(--dim);margin-top:3px}
+.style.sel{border-color:var(--pink);box-shadow:0 0 0 1px var(--pink) inset}
+.toggle{display:flex;align-items:center;gap:8px;font-size:14px;margin-top:12px;color:var(--text);text-transform:none;letter-spacing:0}
+.hint{font-size:12px;color:var(--dim);margin-top:8px}
+.err{color:var(--red);font-size:13px;margin-top:10px;white-space:pre-wrap}
+.gens{display:flex;flex-direction:column;gap:10px}
+.gen{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;cursor:pointer}
+.gen.sel{border-color:var(--cyan)}
+.gen .top{display:flex;gap:10px;align-items:baseline}
+.gen .name{font-weight:800}
+.gen .key{color:var(--dim);font-size:12px}
+.badge{font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.b-succeeded{color:var(--green);border-color:rgba(61,220,151,.4)}
+.b-running{color:var(--cyan);border-color:rgba(0,229,255,.4)}
+.b-awaiting_approval,.b-interrupted{color:var(--yellow);border-color:rgba(255,225,53,.4)}
+.b-failed{color:var(--red);border-color:rgba(255,90,95,.4)}
+.bar{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;margin-top:10px}
+.bar > div{height:100%;background:var(--grad);transition:width .4s}
+.meta{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--dim);margin-top:8px}
+.meta b{color:var(--text);font-weight:600}
+.clips{display:flex;flex-wrap:wrap;gap:3px;margin-top:8px}
+.clip{width:10px;height:16px;border-radius:3px;background:var(--line)}
+.c-downloaded{background:var(--green)} .c-processing,.c-succeeded{background:var(--yellow)} .c-submitted{background:var(--blue)} .c-failed{background:var(--red)}
+.detail{margin-top:16px}
+.dgrid{display:grid;grid-template-columns:300px 1fr;gap:18px}
+@media (max-width:1100px){.dgrid{grid-template-columns:1fr}}
+video{width:100%;max-width:300px;aspect-ratio:9/16;background:#000;border-radius:16px;border:1px solid var(--line)}
+.ph{width:100%;max-width:300px;aspect-ratio:9/16;border-radius:16px;border:1px dashed var(--line);display:grid;place-items:center;color:var(--dim);text-align:center;padding:20px}
+.stages{list-style:none;padding:0;margin:0 0 10px}
+.stages li{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.stages .st-done{color:var(--green)} .stages .st-run{color:var(--cyan)} .stages .st-wait{color:var(--dim)}
+table.kv{width:100%;border-collapse:collapse;font-size:13.5px}
+table.kv td{padding:5px 0;border-bottom:1px solid var(--line);vertical-align:top}
+table.kv td:first-child{color:var(--dim);width:110px}
+.log{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);background:var(--panel2);border-radius:10px;padding:10px;max-height:150px;overflow:auto;margin-top:10px}
+.scenes{max-height:340px;overflow:auto;margin-top:10px;font-size:13px}
+.scene{display:grid;grid-template-columns:40px 50px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.scene .t{color:var(--dim);font-variant-numeric:tabular-nums}
+.scene .beat{color:var(--cyan);font-size:11.5px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--r);max-width:760px;width:calc(100% - 32px);padding:20px}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+.check{display:grid;grid-template-columns:22px 230px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+@media (max-width:700px){.check{grid-template-columns:22px 1fr}.check .cd{grid-column:2}}
+.ok{color:var(--green)} .warn{color:var(--yellow)} .fail{color:var(--red)} .skip{color:var(--dim)}
+.cd .h{color:var(--dim);font-size:12px}
+.empty{color:var(--dim);text-align:center;padding:40px 10px}
+.estimate{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">doctok</span><span class="tag">docs → TikToks, no cap ✨</span>
+  <span class="sp"></span>
+  <button class="btn" id="doctorBtn">🩺 Doctor</button>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>🎬 New generation</h2>
+      <form id="newForm" autocomplete="off">
+        <label for="source">Notion URL or Markdown path</label>
+        <input type="text" id="source" placeholder="https://www.notion.so/…  or  ~/docs/ARCHITECTURE.md" required>
+        <div class="drop" id="drop">…or drop / pick a .md file</div>
+        <input type="file" id="file" accept=".md,.markdown,.txt,text/markdown" hidden>
+        <label for="name">Name <span style="text-transform:none">(optional)</span></label>
+        <input type="text" id="name" placeholder="auto-generated if blank">
+        <label>Style</label>
+        <div class="styles" id="styles"></div>
+        <div class="row">
+          <div><label for="length">Length</label>
+            <select id="length">
+              <option value="180">3:00 — quick serve</option>
+              <option value="210">3:30 — sweet spot</option>
+              <option value="240">4:00 — deep lore</option>
+              <option value="300">5:00 — documentary era</option>
+            </select></div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="dry"> Dry run (no Kling credits — placeholder clips)</label>
+        <label class="toggle"><input type="checkbox" id="captions" checked> Burn in captions</label>
+        <label class="toggle"><input type="checkbox" id="auto"> Render immediately after the storyboard (skip approval)</label>
+        <div class="hint" id="klingHint"></div>
+        <div class="err" id="formErr"></div>
+        <div class="actions"><button class="btn primary" type="submit" id="go">Yassify it ✨</button></div>
+      </form>
+    </div>
+  </section>
+  <section>
+    <div class="gens" id="gens"></div>
+    <div class="card detail" id="detail" hidden></div>
+  </section>
+</main>
+
+<dialog id="doctorDlg">
+  <div class="row" style="margin-bottom:10px"><h2 style="margin:0">🩺 Doctor</h2>
+    <span style="flex:0 0 auto"><label class="toggle" style="margin:0"><input type="checkbox" id="live"> live Claude test</label></span>
+    <span style="flex:0 0 auto"><button class="btn" id="rerun">Run</button> <button class="btn" id="closeDoc">Close</button></span></div>
+  <div id="checks"></div>
+  <div id="docSummary" class="hint"></div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const H = {'Content-Type':'application/json','X-Doctok':'1'};
+let META = null, GENS = new Map(), SEL = null, STYLE = null, LOGS = new Map();
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = sec => { sec = Math.max(0, Math.round(sec||0)); const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60; return (h? h+':'+String(m).padStart(2,'0') : String(m).padStart(2,'0'))+':'+String(s).padStart(2,'0'); };
+const elapsed = g => !g.started_at ? 0 : ((g.finished_at ? new Date(g.finished_at) : (g.status==='running' ? new Date() : new Date(g.started_at))) - new Date(g.started_at))/1000;
+const statusText = {succeeded:'✓ done',running:'◐ running',awaiting_approval:'⏸ awaiting approval',interrupted:'⏯ paused',failed:'✗ failed',pending:'· pending'};
+
+async function api(path, opts={}) {
+  const r = await fetch(path, {...opts, headers:{...(opts.headers||{}), ...(opts.method && opts.method!=='GET' && !(opts.body instanceof FormData) ? H : opts.method && opts.method!=='GET' ? {'X-Doctok':'1'} : {})}});
+  const t = await r.text(); let j; try { j = JSON.parse(t) } catch { j = t }
+  if (!r.ok) throw new Error(j && j.error ? j.error : (typeof j==='string'? j : r.statusText));
+  return j;
+}
+
+async function init() {
+  META = await api('/api/meta');
+  STYLE = META.defaults.style;
+  $('#length').value = String(META.defaults.target_seconds);
+  if (![...$('#length').options].some(o=>o.value===String(META.defaults.target_seconds))) $('#length').value='210';
+  $('#captions').checked = META.defaults.captions;
+  if (!META.kling.has_credentials) { $('#dry').checked = true; $('#klingHint').textContent = 'No Kling credentials configured — dry runs only. Run `doctok configure` to add them.'; }
+  else $('#klingHint').textContent = `Kling ${META.kling.model} · ${META.kling.resolution} · audio ${META.kling.audio?'on':'off'} · $${META.kling.unit_price_usd}/unit`;
+  renderStyles();
+  (await api('/api/generations')).forEach(g => GENS.set(g.key, g));
+  renderGens();
+  const es = new EventSource('/api/events');
+  es.onmessage = e => onEvent(JSON.parse(e.data));
+  setInterval(() => { renderGens(); if (SEL) renderDetail(); }, 1000);
+  // Generations driven from the CLI (another process) only show up in state.json; poll it.
+  setInterval(async () => {
+    try {
+      const list = await api('/api/generations'); const keys = new Set(list.map(g => g.key));
+      list.forEach(g => { const old = GENS.get(g.key); GENS.set(g.key, g); if (SEL===g.key && old && (old.status!==g.status || old.stage!==g.stage)) detailCache.delete(g.key); });
+      [...GENS.keys()].forEach(k => { if (!keys.has(k)) GENS.delete(k); });
+    } catch {}
+  }, 3000);
+}
+
+function renderStyles() {
+  $('#styles').innerHTML = META.styles.map(s => `<div class="style ${s.id===STYLE?'sel':''}" data-id="${esc(s.id)}" title="${esc(s.persona)}">
+    <div class="e">${esc(s.emoji)}</div><div class="n">${esc(s.name)}</div><div class="d">${esc(s.description)}</div></div>`).join('');
+  document.querySelectorAll('.style').forEach(el => el.onclick = () => { STYLE = el.dataset.id; renderStyles(); });
+}
+
+function onEvent(ev) {
+  if (ev.kind === 'deleted') { GENS.delete(ev.key); if (SEL===ev.key) SEL=null; renderGens(); renderDetail(); return; }
+  if (ev.generation) GENS.set(ev.key, ev.generation);
+  if (ev.message && ev.kind !== 'progress') {
+    const l = LOGS.get(ev.key) || []; l.push(new Date(ev.time).toLocaleTimeString()+'  '+ev.message); LOGS.set(ev.key, l.slice(-60));
+  }
+  if (ev.kind === 'approval' || ev.kind === 'done' || ev.kind === 'idle' || ev.kind === 'error') detailCache.delete(ev.key);
+  renderGens(); if (SEL===ev.key) renderDetail(true);
+}
+
+function clipsHTML(g) {
+  const c = (g.kling && g.kling.clips) || [];
+  return c.length ? `<div class="clips">${c.map(x=>`<span class="clip c-${esc(x.status)}" title="scene ${x.index+1}: ${esc(x.status)}${x.error?' — '+esc(x.error):''}"></span>`).join('')}</div>` : '';
+}
+
+function costHTML(g) {
+  const k = g.options.dry_run ? 'dry run' : `${(g.kling.units||0).toFixed(1)} units · $${(g.kling.cost_usd||0).toFixed(2)}${g.kling.units_reported?'':' (est.)'}`;
+  return `<span>Claude <b>$${(g.claude.cost_usd||0).toFixed(4)}</b> ${esc(g.claude.billing||'')}</span><span>Kling <b>${k}</b></span>`;
+}
+
+function renderGens() {
+  const list = [...GENS.values()].sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+  if (!list.length) { $('#gens').innerHTML = '<div class="card empty">No generations yet. Feed me a doc 💅</div>'; return; }
+  $('#gens').innerHTML = list.map(g => {
+    const st = META.styles.find(s=>s.id===g.style) || {};
+    return `<div class="gen ${SEL===g.key?'sel':''}" data-key="${esc(g.key)}">
+      <div class="top"><span class="name">${esc(st.emoji||'')} ${esc(g.name)}</span><span class="key">${esc(g.key)}</span><span style="flex:1"></span>
+      <span class="badge b-${esc(g.status)}">${esc(statusText[g.status]||g.status)}${g.status==='running'?' · '+esc(g.stage):''}</span></div>
+      <div class="bar"><div style="width:${Math.round((g.progress||0)*100)}%"></div></div>
+      <div class="meta"><span>started <b>${g.started_at? new Date(g.started_at).toLocaleString():'—'}</b></span><span>elapsed <b>${fmt(elapsed(g))}</b></span>${costHTML(g)}
+      ${g.video && g.video.duration_seconds ? `<span>length <b>${fmt(g.video.duration_seconds)}</b></span>`:''}</div>
+      ${clipsHTML(g)}${g.message?`<div class="meta">${esc(g.message)}</div>`:''}
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.gen').forEach(el => el.onclick = () => { SEL = el.dataset.key; renderGens(); renderDetail(true); });
+}
+
+const detailCache = new Map();
+let lastDetailKey = null, lastVideoKey = null;
+async function renderDetail(force) {
+  const box = $('#detail');
+  if (!SEL || !GENS.has(SEL)) { box.hidden = true; return; }
+  box.hidden = false;
+  const g = GENS.get(SEL);
+  let d = detailCache.get(SEL);
+  if (!d || force) {
+    try { d = await api('/api/generations/'+encodeURIComponent(SEL)); } catch { d = {generation:g}; }
+    if (g.stage_times && g.stage_times.script && g.stage_times.script.finished_at) {
+      try { d.storyboard = await api(`/api/generations/${encodeURIComponent(SEL)}/storyboard`); } catch {}
+    }
+    detailCache.set(SEL, d);
+  }
+  const st = META.styles.find(s=>s.id===g.style) || {};
+  const est = d.estimate;
+  const hasVideo = g.files && g.files.video && g.status === 'succeeded';
+  const stages = META.stages.map(s => {
+    const t = (g.stage_times||{})[s]; let cls='st-wait', icon='·', time='';
+    if (t && t.finished_at) { cls='st-done'; icon='✓'; time=fmt(t.seconds); }
+    else if (g.stage===s && g.status==='running') { cls='st-run'; icon='◐'; if (t && t.started_at) time = fmt((Date.now()-new Date(t.started_at))/1000); }
+    return `<li class="${cls}"><span>${icon} ${esc(META.stage_labels[s])}</span><span>${time}</span></li>`;
+  }).join('');
+  const sb = d.storyboard;
+  let t0 = 0;
+  const scenes = sb ? sb.scenes.map((s,i)=>{ const row = `<div class="scene"><span class="t">${i+1}</span><span class="t">${fmt(t0)}</span><span><span class="beat">${esc(s.beat)}${s.dance?' · 🕺 '+esc(s.dance):''}</span><br>${esc((s.lines||[]).map(l=>l.text).join(' ') || s.action)}</span></div>`; t0 += s.seconds; return row; }).join('') : '';
+  const running = g.status === 'running';
+  const actions = [];
+  if (g.status==='awaiting_approval') actions.push(`<button class="btn primary" data-act="render">${g.options.dry_run?'Render placeholders':`🚀 Render with Kling (~${est?est.units.toFixed(1):'?'} units ≈ $${est?est.usd.toFixed(2):'?'})`}</button>`);
+  if (g.status==='interrupted' || g.status==='failed') actions.push(`<button class="btn primary" data-act="resume">⏯ Resume</button>`);
+  if (running && d.running_here) actions.push(`<button class="btn" data-act="stop">⏹ Stop</button>`);
+  if (hasVideo) actions.push(`<a class="btn" href="/api/generations/${encodeURIComponent(g.key)}/files/VIDEO.mp4?download=1">⬇ Download</a>`);
+  if (!running) actions.push(`<button class="btn danger" data-act="delete">Delete</button>`);
+  const files = ['DOC.md','DISTILL.md','SCRIPT.json'].filter(f => g.files && g.files[{'DOC.md':'doc','DISTILL.md':'distill','SCRIPT.json':'script'}[f]])
+    .map(f=>`<a href="/api/generations/${encodeURIComponent(g.key)}/files/${f}" target="_blank">${f}</a>`).join(' · ');
+  const videoKey = g.key + (hasVideo ? ':v' : ':p');
+  const keepVideo = lastVideoKey === videoKey && box.querySelector('video');
+  const videoEl = keepVideo ? box.querySelector('video').outerHTML : null;
+  const html = `<div class="dgrid">
+    <div id="vidwrap">${hasVideo ? (videoEl || `<video controls playsinline preload="metadata" src="/api/generations/${encodeURIComponent(g.key)}/files/VIDEO.mp4"></video>`) : `<div class="ph">${running?'cooking… 🍳':'no video yet'}<br><small>${esc(g.message||'')}</small></div>`}</div>
+    <div>
+      <h2>${esc(st.emoji||'')} ${esc(g.name)} <span class="badge b-${esc(g.status)}">${esc(statusText[g.status]||g.status)}</span></h2>
+      <ul class="stages">${stages}</ul>
+      <div class="bar"><div style="width:${Math.round((g.progress||0)*100)}%"></div></div>
+      ${clipsHTML(g)}
+      <table class="kv" style="margin-top:10px">
+        <tr><td>source</td><td>${esc(g.source.ref)} <span class="hint">(${esc(g.source.via||g.source.kind)})</span></td></tr>
+        <tr><td>style</td><td>${esc(st.name||g.style)}</td></tr>
+        <tr><td>started</td><td>${g.started_at? new Date(g.started_at).toLocaleString():'—'}</td></tr>
+        <tr><td>took</td><td>${fmt(elapsed(g))} wall-clock · ${fmt(g.active_seconds)} active</td></tr>
+        <tr><td>claude</td><td>$${(g.claude.cost_usd||0).toFixed(4)} · ${esc(g.claude.billing||'—')} · ${esc(g.claude.model||'—')} · ${g.claude.input_tokens||0} in / ${g.claude.output_tokens||0} out</td></tr>
+        <tr><td>kling</td><td>${g.options.dry_run?'dry run (0 units)':`${(g.kling.units||0).toFixed(2)} units ≈ $${(g.kling.cost_usd||0).toFixed(2)} ${g.kling.units_reported?'(reported)':'(est.)'} · budget ${(g.kling.estimated_units||0).toFixed(1)} · ${esc(g.options.kling_model)} ${esc(g.options.resolution)}`}</td></tr>
+        ${g.video && g.video.duration_seconds ? `<tr><td>video</td><td>${fmt(g.video.duration_seconds)} · ${g.video.width}×${g.video.height} · ${(g.video.size_bytes/1e6).toFixed(1)} MB</td></tr>`:''}
+        ${files?`<tr><td>files</td><td>${files}</td></tr>`:''}
+        ${g.error?`<tr><td>error</td><td class="fail">${esc(g.error)}</td></tr>`:''}
+      </table>
+      ${est && g.status==='awaiting_approval' ? `<div class="estimate">Storyboard ready: <b>${est.scenes}</b> scenes · <b>${fmt(est.seconds)}</b> · ${est.dry_run?'dry run':`est. <b>${est.units.toFixed(1)}</b> Kling units ≈ <b>$${est.usd.toFixed(2)}</b>`}</div>`:''}
+      <div class="actions">${actions.join('')}</div>
+      ${sb?`<h2 style="margin-top:16px">🎬 ${esc(sb.title)}</h2><div class="scenes">${scenes}</div>`:''}
+      <div class="log">${(LOGS.get(g.key)||[]).map(esc).join('<br>') || 'events will appear here'}</div>
+    </div></div>`;
+  const vid = box.querySelector('video');
+  if (keepVideo && vid) {
+    // keep the playing <video> element; replace everything else
+    const holder = document.createElement('div'); holder.innerHTML = html;
+    holder.querySelector('#vidwrap').replaceChildren(vid);
+    box.replaceChildren(...holder.childNodes);
+  } else box.innerHTML = html;
+  lastVideoKey = videoKey;
+  const log = box.querySelector('.log'); if (log) log.scrollTop = log.scrollHeight;
+  box.querySelectorAll('[data-act]').forEach(b => b.onclick = () => act(g.key, b.dataset.act));
+}
+
+async function act(key, a) {
+  try {
+    if (a === 'delete') { if (!confirm(`Delete ${key} and its files?`)) return; await api(`/api/generations/${encodeURIComponent(key)}`, {method:'DELETE'}); return; }
+    await api(`/api/generations/${encodeURIComponent(key)}/${a}`, {method:'POST', body:'{}'});
+  } catch (e) { alert(e.message); }
+}
+
+$('#newForm').onsubmit = async e => {
+  e.preventDefault(); $('#formErr').textContent=''; $('#go').disabled = true;
+  try {
+    const g = await api('/api/generations', {method:'POST', body: JSON.stringify({
+      source: $('#source').value.trim(), name: $('#name').value.trim(), style: STYLE,
+      target_seconds: +$('#length').value, dry_run: $('#dry').checked, captions: $('#captions').checked, auto_render: $('#auto').checked })});
+    GENS.set(g.key, g); SEL = g.key; renderGens(); renderDetail(true);
+    $('#name').value='';
+  } catch (err) { $('#formErr').textContent = err.message; }
+  finally { $('#go').disabled = false; }
+};
+
+const drop = $('#drop'), file = $('#file');
+drop.onclick = () => file.click();
+['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
+file.onchange = () => file.files[0] && upload(file.files[0]);
+async function upload(f) {
+  const fd = new FormData(); fd.append('file', f);
+  drop.textContent = 'uploading…';
+  try { const r = await api('/api/upload', {method:'POST', body: fd}); $('#source').value = r.path; drop.textContent = '✓ '+f.name; if (!$('#name').value) $('#name').placeholder = f.name.replace(/\.[^.]+$/,''); }
+  catch (e) { drop.textContent = 'upload failed: '+e.message; }
+}
+
+// Doctor
+let docES = null;
+function runDoctor() {
+  if (docES) docES.close();
+  $('#checks').innerHTML = ''; $('#docSummary').textContent = 'checking the vibes… (the MCP check can take ~30s)';
+  const rows = new Map();
+  docES = new EventSource('/api/doctor' + ($('#live').checked ? '?live=1' : ''));
+  docES.addEventListener('check', e => {
+    const c = JSON.parse(e.data); let row = rows.get(c.id);
+    if (!row) { row = document.createElement('div'); row.className='check'; $('#checks').appendChild(row); rows.set(c.id,row); }
+    const icon = {ok:'✓',warn:'!',fail:'✗',skip:'–'}[c.status] || '◌';
+    row.innerHTML = `<span class="${esc(c.status||'skip')}">${icon}</span><span>${esc(c.name)}</span><span class="cd">${esc(c.detail||'…')}${c.hint&&c.status!=='ok'?`<div class="h">↳ ${esc(c.hint)}</div>`:''}</span>`;
+  });
+  docES.addEventListener('report', e => { const r = JSON.parse(e.data); docES.close(); docES=null;
+    $('#docSummary').innerHTML = r.ready ? '<span class="ok">✨ ready to generate</span>' : '<span class="warn">not fully ready — dry runs still work with Claude + ffmpeg</span>'; });
+  docES.onerror = () => { if (docES) { docES.close(); docES=null; } };
+}
+$('#doctorBtn').onclick = () => { $('#doctorDlg').showModal(); runDoctor(); };
+$('#rerun').onclick = runDoctor;
+$('#closeDoc').onclick = () => { if (docES) docES.close(); $('#doctorDlg').close(); };
+
+init().catch(e => { document.body.insertAdjacentHTML('beforeend', `<p class="err" style="padding:20px">${esc(e.message)}</p>`); });
+</script>
+</body>
+</html>
