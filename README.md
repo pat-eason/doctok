@@ -12,12 +12,38 @@ Notion page / Markdown ──► Claude Code (local)            ──► Kling 
 
 ## Install
 
-Requires Go 1.26+, [Claude Code](https://claude.com/claude-code) (`claude` on your PATH) and
-ffmpeg (`brew install ffmpeg`, no special build flags needed).
+**Prerequisites**
+- Go 1.26+
+- [Claude Code](https://claude.com/claude-code), installed (`claude` on your PATH) and logged in (`claude auth login`) or with `ANTHROPIC_API_KEY` set
+- ffmpeg (`brew install ffmpeg`; a stock build works, no special flags needed)
+
+**Install the latest release from GitHub:**
 
 ```sh
-make build            # → bin/doctok
-make install          # → $GOPATH/bin/doctok
+go install github.com/pat-eason/doctok/cmd/doctok@latest
+```
+
+**Or build from a clone** (this stamps the git version into `doctok --version`):
+
+```sh
+git clone https://github.com/pat-eason/doctok.git && cd doctok
+make install          # → $(go env GOPATH)/bin/doctok
+make build            # or just build → ./bin/doctok
+```
+
+Either way the binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`). Make sure that
+directory is on your `PATH`:
+
+```sh
+echo 'export PATH="$(go env GOPATH)/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+```
+
+**Then set it up:**
+
+```sh
+doctok configure                          # Kling API key, Claude preference, defaults
+doctok doctor                             # verify Claude, Kling, Notion, ffmpeg
+doctok generate ./some-doc.md --dry-run   # free end-to-end test (no Kling credits)
 ```
 
 ## Quick start
