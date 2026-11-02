@@ -169,3 +169,53 @@ func TestUploadActorPhoto(t *testing.T) {
 		t.Fatalf("photo must be private (0600): %v %v", err, st)
 	}
 }
+
+func TestMetaOffersShortLengthsWithEstimates(t *testing.T) {
+	home := t.TempDir()
+	cfg := engine.DefaultConfig()
+	cfg.Kling.Backend = engine.KlingBackendMCP
+	cfg.Kling.CreditsPerSecond = 10
+	if err := engine.SaveConfig(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	h := New(context.Background(), home).Handler()
+	r := httptest.NewRequest("GET", "/api/meta", nil)
+	r.Host = "localhost:7878"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var meta struct {
+		Lengths []struct {
+			Seconds int     `json:"seconds"`
+			Label   string  `json:"label"`
+			Credits float64 `json:"credits"`
+		} `json:"lengths"`
+		Kling struct {
+			Model string `json:"model"`
+		} `json:"kling"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &meta); err != nil {
+		t.Fatal(err)
+	}
+	got := map[int]float64{}
+	for _, l := range meta.Lengths {
+		got[l.Seconds] = l.Credits
+	}
+	for sec, credits := range map[int]float64{30: 300, 45: 450, 60: 600, 90: 900, 120: 1200, 210: 2100} {
+		if got[sec] != credits {
+			t.Errorf("%ds → %v credits, want %v (all: %v)", sec, got[sec], credits, got)
+		}
+	}
+	if meta.Kling.Model != "kling-3.0" {
+		t.Errorf("default model = %q, want kling-3.0", meta.Kling.Model)
+	}
+
+	// The page builds its options from the server, not from a hard-coded list.
+	r = httptest.NewRequest("GET", "/", nil)
+	r.Host = "localhost:7878"
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	page := w.Body.String()
+	if strings.Contains(page, `<option value="180">`) || !strings.Contains(page, "buildLengths") || !strings.Contains(page, `id="lengthHint"`) {
+		t.Error("length options must be built from /api/meta")
+	}
+}

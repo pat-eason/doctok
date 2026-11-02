@@ -173,6 +173,7 @@ func testEngine(t *testing.T, fk *fakeKling) *Engine {
 	cfg := DefaultConfig()
 	cfg.Claude.Binary = writeFakeClaude(t)
 	cfg.Claude.Mode = ClaudeModeAuto
+	cfg.Kling.Model = "kling-2.6" // pinned: the pricing/clip-length assertions below are 2.6's, not the default's
 	cfg.Kling.APIKey = "test-key"
 	cfg.Kling.APIStyle = KlingStyleStandard
 	if fk != nil {

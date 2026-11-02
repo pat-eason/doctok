@@ -190,7 +190,7 @@ func (e *Engine) Create(ctx context.Context, req GenerateRequest) (*Generation, 
 		opts.TargetSeconds = e.Config.Video.TargetSeconds
 	}
 	if opts.TargetSeconds < e.Config.Video.MinSeconds || opts.TargetSeconds > e.Config.Video.MaxSeconds {
-		return nil, fmt.Errorf("target length %ds must be between %ds and %ds", opts.TargetSeconds, e.Config.Video.MinSeconds, e.Config.Video.MaxSeconds)
+		return nil, fmt.Errorf("target length %ds must be between %ds and %ds (%s to %s)", opts.TargetSeconds, e.Config.Video.MinSeconds, e.Config.Video.MaxSeconds, LengthLabel(e.Config.Video.MinSeconds), LengthLabel(e.Config.Video.MaxSeconds))
 	}
 	if opts.KlingModel == "" {
 		opts.KlingModel = e.Config.Kling.Model

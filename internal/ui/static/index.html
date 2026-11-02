@@ -115,12 +115,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <div class="hint" id="trendsHint"></div>
         <div class="row">
           <div><label for="length">Length</label>
-            <select id="length">
-              <option value="180">3:00 — quick serve</option>
-              <option value="210">3:30 — sweet spot</option>
-              <option value="240">4:00 — deep lore</option>
-              <option value="300">5:00 — documentary era</option>
-            </select></div>
+            <select id="length"></select>
+            <div class="hint" id="lengthHint"></div></div>
         </div>
         <details id="direction">
           <summary>Actor &amp; direction <span style="text-transform:none">(optional)</span></summary>
@@ -174,11 +170,28 @@ async function api(path, opts={}) {
   return j;
 }
 
+// Length choices come from the server so the CLI and UI agree, each with its projected cost.
+function lenCost(l) {
+  if (META.kling.backend === 'mcp') return l.credits > 0 ? ` · ~${Math.round(l.credits).toLocaleString()} credits` : '';
+  return l.units > 0 ? ` · ~${Math.round(l.units)} units ≈ $${l.usd.toFixed(2)}` : '';
+}
+function buildLengths() {
+  const sel = $('#length'), want = String(META.defaults.target_seconds);
+  sel.innerHTML = (META.lengths || []).map(l => `<option value="${l.seconds}">${esc(l.label)}${esc(lenCost(l))}</option>`).join('');
+  sel.value = want;
+  if (sel.value !== want && sel.options.length) sel.value = sel.options[Math.min(sel.options.length - 1, 5)].value;
+  const k = META.kling;
+  $('#lengthHint').textContent = k.backend === 'mcp'
+    ? (k.credits_per_second > 0
+        ? `Estimate = seconds × ${k.credits_per_second} credits/s (your kling.credits_per_second). Actual spend can differ.`
+        : 'No credit estimate yet: Kling doesn\'t publish per-clip credit prices for the MCP. Set kling.credits_per_second (credits per second of video for your model and resolution) in ~/.doctok/config.json, or run doctok configure.')
+    : `Estimates use Kling's published price table for ${k.model} at ${k.resolution}${k.audio ? ' with audio' : ''} ($${k.unit_price_usd}/unit).`;
+}
+
 async function init() {
   META = await api('/api/meta');
   STYLE = META.defaults.style;
-  $('#length').value = String(META.defaults.target_seconds);
-  if (![...$('#length').options].some(o=>o.value===String(META.defaults.target_seconds))) $('#length').value='210';
+  buildLengths();
   $('#captions').checked = META.defaults.captions;
   if (!META.kling.has_credentials) { $('#dry').checked = true; $('#klingHint').textContent = 'No Kling credentials configured — dry runs only. Run `doctok configure` to add them.'; }
   else $('#klingHint').textContent = META.kling.backend === 'mcp' ? `Kling MCP · ${META.kling.model} · ${META.kling.resolution} · audio ${META.kling.audio?'on':'off'} · billed in your Kling credits` : `Kling ${META.kling.model} · ${META.kling.resolution} · audio ${META.kling.audio?'on':'off'} · $${META.kling.unit_price_usd}/unit`;

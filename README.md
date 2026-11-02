@@ -1,6 +1,6 @@
 # doctok ✨
 
-Turn large, gnarly technical docs into **3–5 minute TikTok-influencer explainer videos**:
+Turn large, gnarly technical docs into **TikTok-influencer explainer videos, from 30 seconds to 5 minutes**:
 vertical 1080×1920, jump cuts, dance breaks, burned-in word-by-word captions and
 yassified Gen-Z / Gen-Alpha vernacular. It's giving documentation. No cap.
 
@@ -65,7 +65,7 @@ whatever you leave out when it's attached to a terminal. Pass flags for scripted
 |---|---|
 | `doctor [--live] [--skip-mcp] [--json]` | Checks the Claude Code CLI, your **subscription login** (`claude auth status`), your **API key** (validated against the Anthropic API), which Claude instance will be used, **Kling** credentials and balance (`/account/costs`, free), model/resolution validity, the Notion token, the Notion MCP server in Claude Code, and ffmpeg. `--live` also sends a tiny prompt through Claude. |
 | `configure` | Interactive setup. Secrets go to `~/.doctok/config.json` (mode 0600). |
-| `generate [source] [--name] [--style] [--length 3m30s] [--dry-run] [--yes] [--music file] [--model] [--resolution] [--no-audio] [--no-captions] [--plain]` | Runs the whole pipeline. It pauses after the storyboard to show the exact Kling cost estimate and ask for approval (skip the prompt with `--yes`). |
+| `generate [source] [--name] [--style] [--length 1m30s] [--dry-run] [--yes] [--music file] [--model] [--resolution] [--no-audio] [--no-captions] [--plain]` | Runs the whole pipeline. It pauses after the storyboard to show the exact Kling cost estimate and ask for approval (skip the prompt with `--yes`). |
 | `resume [key]` | Continues an interrupted, failed or awaiting-approval generation. Finished stages, downloaded clips and **in-flight Kling tasks are reused**. |
 | `list` · `show [key]` · `open [key]` · `rm [key]` | Inventory, details and metrics, play the video, delete. |
 | `styles [-v]` | The style catalog. |
@@ -145,12 +145,21 @@ the render immediately.
 
 | Model | Clips | Audio | Units/s @1080p |
 |---|---|---|---|
-| `kling-2.6` (default) | 5 / 10 s | optional (needs 1080p) | 0.5 silent · 1.0 with audio |
-| `kling-3.0` | 3–15 s | optional | 0.8 · 1.2 |
+| `kling-2.6` | 5 / 10 s | optional (needs 1080p) | 0.5 silent · 1.0 with audio |
+| `kling-3.0` (default) | 3–15 s | optional | 0.8 · 1.2 |
 | `kling-3.0-turbo` | 3–15 s | always | 1.0 |
 | `kling-2.5-turbo` | 5 / 10 s | none | 0.5 |
 
-A 3:30 video on the default model is about 210 units, roughly $29 at $0.14 per unit.
+A 3:30 video on the default model (kling-3.0, 1080p, audio) is about 252 units, roughly $35
+at $0.14 per unit; a 1-minute video is about 72 units (~$10).
+
+**Video lengths.** 30s, 45s, 1 min, 1 min 30s, 2 min, 3 min, 3:30, 4 min and 5 min (any
+value from 30 to 300 seconds works with `--length`). The storyboard is written for the length
+you pick: a 30-second video gets a hook, one idea and an outro with no chapters, a 1-minute
+video gets one chapter, a 2-minute video two, and the longer ones the full chapter structure.
+The runtime must land within ±15% of the target. Each option in the picker (CLI and web UI)
+shows its estimated cost: units and dollars on the API backend, credits on the MCP backend
+once you set `kling.credits_per_second`.
 `doctor` shows your balance. `generate` shows a rough budget before it starts and an exact
 estimate before any credits are spent.
 
@@ -200,6 +209,10 @@ What differs from the API backend:
   actions, camera, blocking) and are added to every clip prompt ("Voice direction: …" when
   the clip has audio, "Stage direction: …"). They work on both Kling backends. Voices are
   still generated per clip, so a voice direction improves consistency but can't guarantee it.
+- **Credit estimates.** Kling doesn't publish per-clip credit prices through the MCP, so doctok
+  can't know them. Set `kling.credits_per_second` (via `doctok configure` or `config.json`)
+  to what a second of video costs you at your model and resolution, and every length option
+  shows `seconds × rate`. Until then the options show no estimate rather than a made-up one.
 - **Cost display.** There is no per-clip unit price, so estimates show the scene count and
   "your Kling credits" instead of units and dollars. `doctor` shows your credit balance.
   The approval prompt before rendering still applies.
