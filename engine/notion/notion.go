@@ -26,7 +26,12 @@ func IsNotionURL(s string) bool {
 		return false
 	}
 	h := strings.ToLower(u.Host)
-	return h == "notion.so" || strings.HasSuffix(h, ".notion.so") || strings.HasSuffix(h, ".notion.site") || h == "notion.site"
+	for _, d := range []string{"notion.so", "notion.site", "notion.com"} { // incl. app.notion.com/p/<title>-<id>
+		if h == d || strings.HasSuffix(h, "."+d) {
+			return true
+		}
+	}
+	return false
 }
 
 // PageID extracts the page UUID from a Notion URL (prefers the ?p= peek param).

@@ -16,6 +16,7 @@ func TestPageID(t *testing.T) {
 		"https://www.notion.so/1a2b3c4d5e6f4a1b8c9d0e1f2a3b4c5d?pvs=4",
 		"https://acme.notion.site/Doc-1a2b3c4d-5e6f-4a1b-8c9d-0e1f2a3b4c5d",
 		"https://www.notion.so/acme/ffffffffffffffffffffffffffffffff?p=1a2b3c4d5e6f4a1b8c9d0e1f2a3b4c5d&pm=s",
+		"https://app.notion.com/p/LP-Customer-MCP-to-production-1a2b3c4d5e6f4a1b8c9d0e1f2a3b4c5d",
 	} {
 		got, err := PageID(u)
 		if err != nil || got != want {
@@ -25,7 +26,7 @@ func TestPageID(t *testing.T) {
 			t.Errorf("%s not detected as notion", u)
 		}
 	}
-	if IsNotionURL("https://example.com/notion.so") || IsNotionURL("./docs/notion.md") {
+	if IsNotionURL("https://example.com/notion.so") || IsNotionURL("https://evilnotion.com/x") || IsNotionURL("./docs/notion.md") {
 		t.Error("false positive")
 	}
 	if _, err := PageID("https://www.notion.so/acme/no-id-here"); err == nil {
