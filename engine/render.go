@@ -115,15 +115,19 @@ func (e *Engine) stageRender(ctx context.Context, g *Generation, sb *Storyboard,
 		e.logf(obs, g.Key, StageRender, "Dry run: rendering %d local placeholder clips (no Kling credits spent)", len(sb.Scenes))
 	} else {
 		var apiStyle string
-		client, apiStyle, err = e.NewKling(e.Config.Kling)
+		client, apiStyle, err = e.newKlingBackend(ctx, e.Config.Kling)
 		if err != nil {
 			return err
 		}
 		if _, err := e.Store.Update(g.Key, func(g *Generation) error { g.Kling.APIStyle = apiStyle; return nil }); err != nil {
 			return err
 		}
-		e.logf(obs, g.Key, StageRender, "Submitting %d scenes to Kling %s (%s, %s, audio=%v, up to %d at a time)…",
-			len(sb.Scenes), spec.ID, g.Options.Resolution, "9:16", g.Options.Audio, e.Config.Kling.Concurrency)
+		via := "Kling"
+		if apiStyle == KlingStyleMCP {
+			via = "Kling MCP (billed to your Kling credits)"
+		}
+		e.logf(obs, g.Key, StageRender, "Submitting %d scenes to %s %s (%s, %s, audio=%v, up to %d at a time)…",
+			len(sb.Scenes), via, spec.ID, g.Options.Resolution, "9:16", g.Options.Audio, e.Config.Kling.Concurrency)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -217,7 +221,10 @@ func (e *Engine) recomputeKling(g *Generation) {
 	}
 	g.Kling.Units = math.Round(units*100) / 100
 	g.Kling.UnitsReported = reported && units > 0
-	g.Kling.CostUSD = math.Round(units*e.Config.Kling.UnitPriceUSD*100) / 100
+	g.Kling.CostUSD = 0 // MCP spend is credits on the user's own Kling plan, not metered API units
+	if e.Config.Kling.Backend != KlingBackendMCP {
+		g.Kling.CostUSD = math.Round(units*e.Config.Kling.UnitPriceUSD*100) / 100
+	}
 	if n > 0 && g.Stage == StageRender {
 		g.Progress = stageBase(StageRender) + stageWeights[StageRender]*done/float64(n)
 	}
@@ -227,6 +234,8 @@ func (e *Engine) renderClip(ctx context.Context, g *Generation, idx int, prompt 
 	poll := time.Duration(e.Config.Kling.PollSeconds) * time.Second
 	if e.PollInterval > 0 {
 		poll = e.PollInterval
+	} else if e.Config.Kling.Backend == KlingBackendMCP && poll < mcpPollFloor {
+		poll = mcpPollFloor
 	}
 	label := fmt.Sprintf("Scene %d/%d", idx+1, len(g.Kling.Clips))
 	for {
@@ -344,7 +353,7 @@ func (e *Engine) renderClip(ctx context.Context, g *Generation, idx int, prompt 
 			}
 			units := task.Units
 			reported := task.CostReported && task.Units > 0
-			if !reported {
+			if !reported && e.Config.Kling.Backend != KlingBackendMCP {
 				units = spec.UnitsFor(clip.Seconds, g.Options.Resolution, g.Options.Audio)
 			}
 			now := e.Now().UTC()

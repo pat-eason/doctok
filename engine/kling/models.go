@@ -20,6 +20,7 @@ const (
 type ModelSpec struct {
 	ID          string // new-standard path id, e.g. "kling-2.6"
 	LegacyName  string // legacy model_name, e.g. "kling-v2-6" ("" if not available)
+	MCPName     string // model id on the Kling MCP server, e.g. "kling-video-v2_6" ("" if not available)
 	Label       string
 	Durations   []int // allowed clip lengths in seconds
 	Audio       string
@@ -32,22 +33,22 @@ type ModelSpec struct {
 // Models is the registry of supported models.
 var Models = map[string]ModelSpec{
 	"kling-3.0-turbo": {
-		ID: "kling-3.0-turbo", Label: "Kling 3.0 Turbo (native audio, 3–15s clips)",
+		ID: "kling-3.0-turbo", MCPName: "kling-video-v3_0_turbo", Label: "Kling 3.0 Turbo (native audio, 3–15s clips)",
 		Durations: rangeInts(3, 15), Audio: AudioAlways, Resolutions: []string{"720p", "1080p"}, PromptMax: 3072,
 		UnitsPerSecond: map[string]map[bool]float64{"720p": {true: 0.8}, "1080p": {true: 1.0}},
 	},
 	"kling-3.0": {
-		ID: "kling-3.0", Label: "Kling 3.0 (optional native audio, 3–15s clips)",
+		ID: "kling-3.0", MCPName: "kling-video-v3_0", Label: "Kling 3.0 (optional native audio, 3–15s clips)",
 		Durations: rangeInts(3, 15), Audio: AudioOptional, Resolutions: []string{"720p", "1080p"}, PromptMax: 2500,
 		UnitsPerSecond: map[string]map[bool]float64{"720p": {false: 0.6, true: 0.9}, "1080p": {false: 0.8, true: 1.2}},
 	},
 	"kling-2.6": {
-		ID: "kling-2.6", LegacyName: "kling-v2-6", Label: "Kling 2.6 (native audio @1080p, 5/10s clips)",
+		ID: "kling-2.6", MCPName: "kling-video-v2_6", LegacyName: "kling-v2-6", Label: "Kling 2.6 (native audio @1080p, 5/10s clips)",
 		Durations: []int{5, 10}, Audio: AudioOptional, Resolutions: []string{"720p", "1080p"}, PromptMax: 2500,
 		UnitsPerSecond: map[string]map[bool]float64{"720p": {false: 0.3}, "1080p": {false: 0.5, true: 1.0}},
 	},
 	"kling-2.5-turbo": {
-		ID: "kling-2.5-turbo", LegacyName: "kling-v2-5-turbo", Label: "Kling 2.5 Turbo (silent, 5/10s clips)",
+		ID: "kling-2.5-turbo", MCPName: "kling-video-v2_5", LegacyName: "kling-v2-5-turbo", Label: "Kling 2.5 Turbo (silent, 5/10s clips)",
 		Durations: []int{5, 10}, Audio: AudioNone, Resolutions: []string{"720p", "1080p"}, PromptMax: 2500,
 		UnitsPerSecond: map[string]map[bool]float64{"720p": {false: 0.3}, "1080p": {false: 0.5}},
 	},

@@ -410,6 +410,7 @@ func (r *Runner) MCPList(ctx context.Context) ([]MCPServer, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, r.bin(), "mcp", "list")
 	cmd.Env = r.Env()
+	cmd.Dir = r.Dir
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(out) == 0 {
 		return nil, err

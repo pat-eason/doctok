@@ -208,6 +208,8 @@ func costLine(g *engine.Generation, unitUSD float64) string {
 	var klingStr string
 	if g.Options.DryRun {
 		klingStr = sDim.Render("Kling 0 units (dry run)")
+	} else if g.Kling.APIStyle == engine.KlingStyleMCP {
+		klingStr = sDim.Render(fmt.Sprintf("Kling MCP · %d clips on your Kling credits", len(g.Kling.Clips)))
 	} else {
 		tag := "est."
 		if g.Kling.UnitsReported {

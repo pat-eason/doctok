@@ -239,7 +239,15 @@ func (e *Engine) Doctor(ctx context.Context, opts DoctorOptions, onCheck func(Ch
 	})
 
 	kc := e.Config.Kling
+	mcp := kc.Backend == KlingBackendMCP
 	credsOK := run("kling-creds", "kling", "Kling credentials", func() Check {
+		if mcp {
+			srv, err := e.findKlingMCP(ctx, kc.MCPServer)
+			if err != nil {
+				return Check{Status: CheckFail, Detail: err.Error()}
+			}
+			return Check{Status: CheckOK, Detail: fmt.Sprintf("MCP server %q (%s) via Claude Code", srv.Name, srv.Status)}
+		}
 		switch {
 		case kc.APIKey != "":
 			return Check{Status: CheckOK, Detail: fmt.Sprintf("API key %s · %s", maskKey(kc.APIKey), kc.BaseURL)}
@@ -255,15 +263,31 @@ func (e *Engine) Doctor(ctx context.Context, opts DoctorOptions, onCheck func(Ch
 		if !credsOK {
 			return Check{Status: CheckSkip, Detail: "no credentials"}
 		}
-		client, style, err := e.NewKling(kc)
+		if mcp && !pickOK {
+			return Check{Status: CheckSkip, Detail: "no usable Claude instance"}
+		}
+		client, style, err := e.newKlingBackend(ctx, kc)
 		if err != nil {
 			return Check{Status: CheckFail, Detail: err.Error()}
 		}
 		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		if mcp {
+			cctx, cancel = context.WithTimeout(ctx, 3*time.Minute) // one headless Claude run
+		}
 		defer cancel()
 		acct, err := client.AccountCosts(cctx)
 		if err != nil {
+			if mcp {
+				return Check{Status: CheckFail, Detail: err.Error(), Hint: "run `claude` → /mcp and sign in to the Kling server"}
+			}
 			return Check{Status: CheckFail, Detail: err.Error(), Hint: "check credentials, kling.base_url and kling.api_style"}
+		}
+		if mcp {
+			detail := fmt.Sprintf("authenticated (MCP) · %.0f credits remaining", acct.RemainingUnits)
+			if len(acct.Packs) > 0 && acct.Packs[0].Name != "" {
+				detail += " · " + acct.Packs[0].Name
+			}
+			return Check{Status: CheckOK, Detail: detail}
 		}
 		packs := make([]string, 0, len(acct.Packs))
 		for _, p := range acct.Packs {
@@ -290,6 +314,12 @@ func (e *Engine) Doctor(ctx context.Context, opts DoctorOptions, onCheck func(Ch
 		}
 		if err := spec.Validate(kc.Resolution, kc.Audio); err != nil {
 			return Check{Status: CheckFail, Detail: err.Error()}
+		}
+		if mcp {
+			if spec.MCPName == "" {
+				return Check{Status: CheckFail, Detail: spec.ID + " isn't available on the Kling MCP server", Hint: "pick kling-2.6, kling-3.0 or kling-3.0-turbo"}
+			}
+			return Check{Status: CheckOK, Detail: fmt.Sprintf("%s → %s · %s · audio=%v · billed in Kling credits", spec.Label, spec.MCPName, kc.Resolution, spec.EffectiveAudio(kc.Audio))}
 		}
 		style := kc.APIStyle
 		if style == KlingStyleAuto {

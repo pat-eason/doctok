@@ -173,7 +173,10 @@ func runGenerate(cmd *cobra.Command, src string, f genFlags) error {
 	}
 	pre := eng.PreEstimate(g)
 	fmt.Printf("%s %s → %s\n", sOK.Render("✓"), sBold.Render(g.Name), sDim.Render(homeShort(g.Dir)))
-	if !g.Options.DryRun {
+	if !g.Options.DryRun && pre.Backend == engine.KlingBackendMCP {
+		fmt.Println(sDim.Render(fmt.Sprintf("  ~%d scenes on %s %s via the Kling MCP (uses your Kling credits, not API units); exact scene count after the storyboard",
+			pre.Scenes, pre.Model, pre.Resolution)))
+	} else if !g.Options.DryRun {
 		fmt.Println(sDim.Render(fmt.Sprintf("  rough budget: ~%d scenes · ~%.0f Kling units (~$%.2f) on %s %s; exact estimate after the storyboard",
 			pre.Scenes, pre.Units, pre.USD, pre.Model, pre.Resolution)))
 	}
@@ -209,11 +212,18 @@ func drive(ctx context.Context, eng *engine.Engine, g *engine.Generation, yes, p
 		}
 		if !g.Options.DryRun && !yes {
 			if !interactive() {
+				if est.Backend == engine.KlingBackendMCP {
+					return fmt.Errorf("storyboard ready; re-run with --yes to spend Kling credits on %d scenes, or `doctok resume %s --yes`", est.Scenes, g.Key)
+				}
 				return fmt.Errorf("storyboard ready; re-run with --yes to spend ~%.1f Kling units, or `doctok resume %s --yes`", est.Units, g.Key)
 			}
 			choice := "render"
+			title := fmt.Sprintf("Render %d scenes with Kling for ~%.1f units (~$%.2f)?", est.Scenes, est.Units, est.USD)
+			if est.Backend == engine.KlingBackendMCP {
+				title = fmt.Sprintf("Render %d scenes through the Kling MCP (spends Kling credits on your account)?", est.Scenes)
+			}
 			err := runForm(huh.NewGroup(huh.NewSelect[string]().
-				Title(fmt.Sprintf("Render %d scenes with Kling for ~%.1f units (~$%.2f)?", est.Scenes, est.Units, est.USD)).
+				Title(title).
 				Options(
 					huh.NewOption("🚀 Send it", "render"),
 					huh.NewOption("⏸  Not now — resume later with `doctok resume "+g.Key+"`", "later"),
@@ -281,6 +291,8 @@ func printStoryboard(sb *engine.Storyboard, est *engine.Estimate) {
 	msg := fmt.Sprintf("%d scenes · %s runtime · %s %s · audio=%v", est.Scenes, fmtSecs(float64(est.Seconds)), est.Model, est.Resolution, est.Audio)
 	if est.DryRun {
 		msg += " · dry run (no Kling spend)"
+	} else if est.Backend == engine.KlingBackendMCP {
+		msg += " · Kling MCP (your Kling credits)"
 	} else {
 		msg += fmt.Sprintf(" · est. %.1f units ≈ $%.2f", est.Units, est.USD)
 	}

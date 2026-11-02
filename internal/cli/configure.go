@@ -42,9 +42,12 @@ func runConfigure(cmd *cobra.Command) error {
 	claudeModel := cfg.Claude.Model
 	// --- Kling
 	klingAuth := "apikey"
-	if cfg.Kling.APIKey == "" && cfg.Kling.AccessKey != "" {
+	if cfg.Kling.Backend == engine.KlingBackendMCP {
+		klingAuth = "mcp"
+	} else if cfg.Kling.APIKey == "" && cfg.Kling.AccessKey != "" {
 		klingAuth = "aksk"
 	}
+	klingMCPServer := cfg.Kling.MCPServer
 	klingKey, klingAK, klingSK := "", "", ""
 	klingModel := cfg.Kling.Model
 	klingRes := cfg.Kling.Resolution
@@ -93,11 +96,16 @@ func runConfigure(cmd *cobra.Command) error {
 		),
 		huh.NewGroup(
 			huh.NewNote().Title("Kling").Description("Kling renders every scene. Get credentials at https://kling.ai/dev"),
-			huh.NewSelect[string]().Title("Kling auth").Options(
-				huh.NewOption("API key (current standard API)", "apikey"),
+			huh.NewSelect[string]().Title("Kling backend / auth").Options(
+				huh.NewOption("Kling MCP via Claude Code (your Kling credits; far cheaper than the API)", "mcp"),
+				huh.NewOption("API key (current standard API, pay-per-unit)", "apikey"),
 				huh.NewOption("Access key + secret key (legacy JWT API)", "aksk"),
 			).Value(&klingAuth),
 		),
+		huh.NewGroup(
+			huh.NewNote().Title("Kling MCP").Description("Add it once: claude mcp add --scope user --transport http kling https://kling.ai/mcp\nthen run `claude` → /mcp → kling to sign in. `doctok doctor` verifies it."),
+			huh.NewInput().Title("MCP server name (blank = autodetect)").Value(&klingMCPServer),
+		).WithHideFunc(func() bool { return klingAuth != "mcp" }),
 		huh.NewGroup(
 			huh.NewInput().Title("Kling API key").Description(keyNote(cfg.Kling.APIKey != "", cfg.FromEnv("kling.api_key"))).
 				EchoMode(huh.EchoModePassword).Value(&klingKey),
@@ -149,7 +157,11 @@ func runConfigure(cmd *cobra.Command) error {
 	if k := strings.TrimSpace(claudeKey); k != "" {
 		cfg.Claude.APIKey = k
 	}
-	if klingAuth == "apikey" {
+	cfg.Kling.Backend = engine.KlingBackendAPI
+	if klingAuth == "mcp" {
+		cfg.Kling.Backend = engine.KlingBackendMCP
+		cfg.Kling.MCPServer = strings.TrimSpace(klingMCPServer)
+	} else if klingAuth == "apikey" {
 		if k := strings.TrimSpace(klingKey); k != "" {
 			cfg.Kling.APIKey = k
 		}

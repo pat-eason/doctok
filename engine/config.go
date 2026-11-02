@@ -30,6 +30,12 @@ const (
 	KlingStyleLegacy   = "legacy"   // POST /v1/videos/text2video (AK/SK JWT)
 )
 
+// Kling backends: how clips are generated.
+const (
+	KlingBackendAPI = "api" // Kling Open Platform API (API key or AK/SK), pay-per-unit
+	KlingBackendMCP = "mcp" // Kling MCP server via headless Claude Code, billed to the Kling account's credits
+)
+
 // Config is persisted at ~/.doctok/config.json. Environment variables override
 // file values at load time (see applyEnv) but are never written back.
 type Config struct {
@@ -52,6 +58,8 @@ type ClaudeConfig struct {
 }
 
 type KlingConfig struct {
+	Backend      string  `json:"backend,omitempty"`    // api (default) | mcp
+	MCPServer    string  `json:"mcp_server,omitempty"` // name from `claude mcp list`; empty = autodetect "kling"
 	APIKey       string  `json:"api_key,omitempty"`
 	AccessKey    string  `json:"access_key,omitempty"`
 	SecretKey    string  `json:"secret_key,omitempty"`
@@ -88,6 +96,7 @@ func DefaultConfig() Config {
 	return Config{
 		Claude: ClaudeConfig{Mode: ClaudeModeAuto},
 		Kling: KlingConfig{
+			Backend:      KlingBackendAPI,
 			BaseURL:      "https://api-singapore.klingai.com",
 			APIStyle:     KlingStyleAuto,
 			Model:        "kling-2.6",
@@ -167,6 +176,10 @@ func SaveConfig(home string, cfg Config) error {
 			out.Kling.SecretKey = disk.Kling.SecretKey
 		case "kling.base_url":
 			out.Kling.BaseURL = disk.Kling.BaseURL
+		case "kling.backend":
+			out.Kling.Backend = disk.Kling.Backend
+		case "kling.mcp_server":
+			out.Kling.MCPServer = disk.Kling.MCPServer
 		case "notion.token":
 			out.Notion.Token = disk.Notion.Token
 		}
@@ -188,6 +201,9 @@ func (c *Config) fillDefaults() {
 	}
 	if c.Kling.BaseURL == "" {
 		c.Kling.BaseURL = d.Kling.BaseURL
+	}
+	if c.Kling.Backend == "" {
+		c.Kling.Backend = d.Kling.Backend
 	}
 	if c.Kling.APIStyle == "" {
 		c.Kling.APIStyle = d.Kling.APIStyle
@@ -246,6 +262,8 @@ func (c *Config) applyEnv() {
 	set("kling.access_key", &c.Kling.AccessKey, "KLING_ACCESS_KEY")
 	set("kling.secret_key", &c.Kling.SecretKey, "KLING_SECRET_KEY")
 	set("kling.base_url", &c.Kling.BaseURL, "KLING_BASE_URL")
+	set("kling.backend", &c.Kling.Backend, "KLING_BACKEND")
+	set("kling.mcp_server", &c.Kling.MCPServer, "KLING_MCP_SERVER")
 	set("notion.token", &c.Notion.Token, "NOTION_TOKEN", "NOTION_API_KEY")
 }
 
@@ -261,6 +279,11 @@ func (c Config) Validate() error {
 	case NotionModeAuto, NotionModeAPI, NotionModeMCP:
 	default:
 		errs = append(errs, fmt.Sprintf("notion.mode %q must be auto|api|mcp", c.Notion.Mode))
+	}
+	switch c.Kling.Backend {
+	case KlingBackendAPI, KlingBackendMCP:
+	default:
+		errs = append(errs, fmt.Sprintf("kling.backend %q must be api|mcp", c.Kling.Backend))
 	}
 	switch c.Kling.APIStyle {
 	case KlingStyleAuto, KlingStyleStandard, KlingStyleLegacy:

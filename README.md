@@ -159,6 +159,36 @@ estimate before any credits are spent.
 `POST /v1/videos/text2video`). `auto` picks `standard` when an API key is configured. The
 base URL defaults to `https://api-singapore.klingai.com`.
 
+### Kling MCP backend (spend your Kling credits instead of API units)
+
+Set `kling.backend` to `mcp` (or `KLING_BACKEND=mcp`, or pick it in `doctok configure`) to
+render through the Kling MCP server instead of the pay-per-unit API. Clips are billed to the
+credits on your Kling plan, with no API key. The MCP server is OAuth-only, so doctok drives
+it through headless Claude Code, the same way it reads Notion. One-time setup:
+
+```sh
+claude mcp add --scope user --transport http kling https://kling.ai/mcp
+claude            # then /mcp → kling → sign in
+doctok doctor     # shows "authenticated (MCP) · N credits remaining"
+```
+
+Use `--scope user`. A project-scoped server isn't visible to doctok's headless runs, and
+`doctor` will say it's missing. Set `kling.mcp_server` if your server isn't named `kling`.
+
+What differs from the API backend:
+
+- **Cost display.** There is no per-clip unit price, so estimates show the scene count and
+  "your Kling credits" instead of units and dollars. `doctor` shows your credit balance.
+  The approval prompt before rendering still applies.
+- **Models.** `kling-2.6`, `kling-3.0`, `kling-3.0-turbo` and `kling-2.5-turbo` map to the
+  MCP's `kling-video-v2_6`, `-v3_0`, `-v3_0_turbo` and `-v2_5`. Each clip pins `imageCount=1`
+  so it can't multiply the spend.
+- **Claude usage.** Every submit and poll is a tiny `claude -p` run on Haiku. Polling is
+  floored at 30 s (`kling.poll_seconds` can raise it) to keep that cheap.
+- **Safety.** A clip is submitted once per attempt and the relay is told never to retry a
+  generation call. Out-of-credits and sign-in errors stop the render. Busy errors back off.
+  Task IDs are persisted, so `resume` polls in-flight clips instead of resubmitting.
+
 > ⚠️ Kling's official docs only render client-side. This client was built against a
 > mirrored copy of Kling's API reference and price table (snapshot 2026-09-20). If Kling
 > changes a field name or price, adjust `engine/kling/` or `kling.unit_price_usd`. When

@@ -165,7 +165,11 @@ func newShowCmd() *cobra.Command {
 			if g.Kling.UnitsReported {
 				tag = "reported"
 			}
-			kv("kling", fmt.Sprintf("%.2f units ≈ $%.2f (%s) · budget %.1f units · %s API", g.Kling.Units, g.Kling.CostUSD, tag, g.Kling.EstimatedUnits, orDash(g.Kling.APIStyle)))
+			if g.Kling.APIStyle == engine.KlingStyleMCP {
+				kv("kling", fmt.Sprintf("MCP · billed to your Kling credits (no per-clip API cost) · %d clips", len(g.Kling.Clips)))
+			} else {
+				kv("kling", fmt.Sprintf("%.2f units ≈ $%.2f (%s) · budget %.1f units · %s API", g.Kling.Units, g.Kling.CostUSD, tag, g.Kling.EstimatedUnits, orDash(g.Kling.APIStyle)))
+			}
 			if len(g.Kling.Clips) > 0 {
 				fmt.Println(sLabel.Render("") + clipGrid(g.Kling.Clips))
 			}

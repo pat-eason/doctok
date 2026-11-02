@@ -140,6 +140,7 @@ type Estimate struct {
 	UnitPriceUSD   float64 `json:"unit_price_usd"`
 	DryRun         bool    `json:"dry_run"`
 	FromStoryboard bool    `json:"from_storyboard"`
+	Backend        string  `json:"backend,omitempty"` // api | mcp; for mcp, Units/USD are 0 (spend is Kling credits)
 }
 
 // Create validates a request and registers a pending generation.
@@ -257,7 +258,8 @@ func (e *Engine) PreEstimate(g *Generation) Estimate {
 	if spec.MaxDuration() > 0 {
 		est.Scenes = (g.Options.TargetSeconds + min(spec.MaxDuration(), 10) - 1) / min(spec.MaxDuration(), 10)
 	}
-	if g.Options.DryRun {
+	est.Backend = e.Config.Kling.Backend
+	if g.Options.DryRun || est.Backend == KlingBackendMCP {
 		est.Units, est.USD = 0, 0
 	}
 	return est
@@ -283,7 +285,8 @@ func (e *Engine) Estimate(key string) (*Estimate, error) {
 		est.Units += spec.UnitsFor(s.Seconds, g.Options.Resolution, g.Options.Audio)
 	}
 	est.USD = est.Units * e.Config.Kling.UnitPriceUSD
-	if g.Options.DryRun {
+	est.Backend = e.Config.Kling.Backend
+	if g.Options.DryRun || est.Backend == KlingBackendMCP {
 		est.Units, est.USD = 0, 0
 	}
 	return est, nil

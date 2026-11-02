@@ -554,11 +554,16 @@ func (c *Client) AccountCosts(ctx context.Context) (*Account, error) {
 
 // Download saves a finished video to path.
 func (c *Client) Download(ctx context.Context, videoURL, path string) (int64, error) {
+	return DownloadFile(ctx, videoURL, path, c.UserAgent)
+}
+
+// DownloadFile saves a finished video (a public CDN URL, no credentials) to path.
+func DownloadFile(ctx context.Context, videoURL, path, userAgent string) (int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("User-Agent", userAgent)
 	hc := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := hc.Do(req)
 	if err != nil {
