@@ -219,3 +219,26 @@ func TestMetaOffersShortLengthsWithEstimates(t *testing.T) {
 		t.Error("length options must be built from /api/meta")
 	}
 }
+
+// The page re-renders every second (live timers) and on every server event.
+// Rebuilding the DOM with innerHTML on each pass replaced the buttons under the
+// cursor, so a click whose mousedown and mouseup straddled a rebuild was dropped
+// ("clicking the button does nothing"). Rendering must patch in place instead.
+func TestPageRendersInPlaceSoClicksAreNotDropped(t *testing.T) {
+	h := New(context.Background(), t.TempDir()).Handler()
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Host = "localhost:7878"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	page := w.Body.String()
+	for _, want := range []string{"function morph(", "function patchChildren(", "morph(box, html)", "morph($('#gens'),"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page must patch the DOM in place; missing %q", want)
+		}
+	}
+	for _, bad := range []string{"box.innerHTML = html", "$('#gens').innerHTML = list.map"} {
+		if strings.Contains(page, bad) {
+			t.Errorf("page must not rebuild the detail panel or list wholesale (found %q)", bad)
+		}
+	}
+}

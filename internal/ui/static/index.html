@@ -248,10 +248,35 @@ function costHTML(g) {
   return `<span>Claude <b>$${(g.claude.cost_usd||0).toFixed(4)}</b> ${esc(g.claude.billing||'')}</span><span>Kling <b>${k}</b></span>`;
 }
 
+// Update `target` in place to match `html`, touching only what changed.
+// The page re-renders every second (live timers) and on every server event. Rebuilding
+// with innerHTML each time replaced the buttons under the cursor: a click needs
+// mousedown and mouseup on the same element, so a rebuild in between dropped the click
+// ("the button does nothing"). Unchanged elements now stay the same DOM nodes, which also
+// keeps hover state and a playing <video> alive.
+function morph(target, html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  patchChildren(target, tpl.content);
+}
+function patchChildren(a, b) {
+  while (a.childNodes.length > b.childNodes.length) a.removeChild(a.lastChild);
+  for (let i = 0; i < b.childNodes.length; i++) {
+    const x = a.childNodes[i], y = b.childNodes[i];
+    if (!x) { a.appendChild(y.cloneNode(true)); continue; }
+    if (x.nodeType !== y.nodeType || x.nodeName !== y.nodeName) { a.replaceChild(y.cloneNode(true), x); continue; }
+    if (x.nodeType !== 1) { if (x.nodeValue !== y.nodeValue) x.nodeValue = y.nodeValue; continue; }
+    for (const at of [...x.attributes]) if (!y.hasAttribute(at.name)) x.removeAttribute(at.name);
+    for (const at of y.attributes) if (x.getAttribute(at.name) !== at.value) x.setAttribute(at.name, at.value);
+    if (x.nodeName === 'VIDEO' || x.nodeName === 'IMG') continue; // attributes synced above; never rebuild media
+    patchChildren(x, y);
+  }
+}
+
 function renderGens() {
   const list = [...GENS.values()].sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
   if (!list.length) { $('#gens').innerHTML = '<div class="card empty">No generations yet. Feed me a doc 💅</div>'; return; }
-  $('#gens').innerHTML = list.map(g => {
+  morph($('#gens'), list.map(g => {
     const st = META.styles.find(s=>s.id===g.style) || {};
     return `<div class="gen ${SEL===g.key?'sel':''}" data-key="${esc(g.key)}">
       <div class="top"><span class="name">${esc(st.emoji||'')} ${esc(g.name)}</span><span class="key">${esc(g.key)}</span><span style="flex:1"></span>
@@ -261,7 +286,7 @@ function renderGens() {
       ${g.video && g.video.duration_seconds ? `<span>length <b>${fmt(g.video.duration_seconds)}</b></span>`:''}</div>
       ${clipsHTML(g)}${g.message?`<div class="meta">${esc(msgText(g))}</div>`:''}
     </div>`;
-  }).join('');
+  }).join(''));
   document.querySelectorAll('.gen').forEach(el => el.onclick = () => { SEL = el.dataset.key; renderGens(); renderDetail(true); });
 }
 
@@ -313,10 +338,8 @@ async function renderDetail(force) {
   const files = ['DOC.md','DISTILL.md','SCRIPT.json'].filter(f => g.files && g.files[{'DOC.md':'doc','DISTILL.md':'distill','SCRIPT.json':'script'}[f]])
     .map(f=>`<a href="/api/generations/${encodeURIComponent(g.key)}/files/${f}" target="_blank">${f}</a>`).join(' · ');
   const videoKey = g.key + (hasVideo ? ':v' : ':p');
-  const keepVideo = lastVideoKey === videoKey && box.querySelector('video');
-  const videoEl = keepVideo ? box.querySelector('video').outerHTML : null;
   const html = `<div class="dgrid">
-    <div id="vidwrap">${hasVideo ? (videoEl || `<video controls playsinline preload="metadata" src="/api/generations/${encodeURIComponent(g.key)}/files/VIDEO.mp4"></video>`) : `<div class="ph">${running?'cooking… 🍳':'no video yet'}<br><small>${esc(msgText(g))}</small></div>`}</div>
+    <div id="vidwrap">${hasVideo ? `<video controls playsinline preload="metadata" src="/api/generations/${encodeURIComponent(g.key)}/files/VIDEO.mp4"></video>` : `<div class="ph">${running?'cooking… 🍳':'no video yet'}<br><small>${esc(msgText(g))}</small></div>`}</div>
     <div>
       <h2>${esc(st.emoji||'')} ${esc(g.name)} <span class="badge b-${esc(g.status)}">${esc(statusText[g.status]||g.status)}</span></h2>
       <ul class="stages">${stages}</ul>
@@ -342,12 +365,7 @@ async function renderDetail(force) {
       <div class="log">${(LOGS.get(g.key)||[]).map(esc).join('<br>') || 'events will appear here'}</div>
     </div></div>`;
   const vid = box.querySelector('video');
-  if (keepVideo && vid) {
-    // keep the playing <video> element; replace everything else
-    const holder = document.createElement('div'); holder.innerHTML = html;
-    holder.querySelector('#vidwrap').replaceChildren(vid);
-    box.replaceChildren(...holder.childNodes);
-  } else box.innerHTML = html;
+  morph(box, html); // in place: never rebuild unchanged elements (see morph)
   lastVideoKey = videoKey;
   const log = box.querySelector('.log'); if (log) log.scrollTop = log.scrollHeight;
   box.querySelectorAll('[data-act]').forEach(b => b.onclick = () => act(g.key, b.dataset.act));
