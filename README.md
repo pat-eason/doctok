@@ -177,6 +177,29 @@ Use `--scope user`. A project-scoped server isn't visible to doctok's headless r
 
 What differs from the API backend:
 
+- **Consistent presenter.** Separately generated text-to-video clips don't keep the same
+  face, outfit or room, whatever the prompt says. So before any clip is rendered, doctok
+  generates **one presenter reference image** (9:16, from the storyboard's cast and set) and
+  stops so you can look at it. After you approve it, every clip is animated from that image
+  with `image_to_video`, so the whole video shares one person and one set. The image costs a
+  few credits; **Regenerate** pays for another. `--yes` approves it automatically. It is
+  generated once and saved (`HERO.jpg`/`HERO.png` in the generation folder), so `resume`
+  reuses it. Set `kling.no_hero: true` in the config to go back to independent text-to-video
+  clips. Voices are still generated per clip and can differ between cuts.
+- **You as the actor.** `--actor ~/Pictures/me.jpg` (or the "Actor & direction" box in the
+  web UI) uses your photo instead of a generated presenter. doctok crops it to 9:16 (keeping
+  the top, so heads stay in frame), uploads it to Kling (free), shows you the crop to approve,
+  and animates every clip from it, so the video stars you. The storyboard is written without
+  an invented look, and clip prompts say "the person in the reference image" instead of a
+  described character. JPG or PNG, at least 300 px on the short edge after cropping, under
+  30 MB. Needs the MCP backend; styles that key out a green screen can't use it. Use photos
+  of yourself, or of people who agreed to it, and label the result as AI-generated.
+- **Voice and stage direction.** `--voice "warm, unhurried, dry humor"` and
+  `--stage "always at a desk with a mug, handheld camera"` (also in the web UI) are optional
+  free text, up to 400 characters each. They steer the storyboard (line writing and tone;
+  actions, camera, blocking) and are added to every clip prompt ("Voice direction: …" when
+  the clip has audio, "Stage direction: …"). They work on both Kling backends. Voices are
+  still generated per clip, so a voice direction improves consistency but can't guarantee it.
 - **Cost display.** There is no per-clip unit price, so estimates show the scene count and
   "your Kling credits" instead of units and dollars. `doctor` shows your credit balance.
   The approval prompt before rendering still applies.

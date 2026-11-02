@@ -126,6 +126,12 @@ type GenerateRequest struct {
 	Audio         *bool
 	Captions      *bool
 	Music         string
+
+	// ActorImage is a path to a JPG/PNG photo of the presenter (Kling MCP backend only).
+	ActorImage string
+	// VoiceDirection / StageDirection are optional free-text direction (see GenerationOptions).
+	VoiceDirection string
+	StageDirection string
 }
 
 // Estimate is the projected cost of rendering.
@@ -141,6 +147,7 @@ type Estimate struct {
 	DryRun         bool    `json:"dry_run"`
 	FromStoryboard bool    `json:"from_storyboard"`
 	Backend        string  `json:"backend,omitempty"` // api | mcp; for mcp, Units/USD are 0 (spend is Kling credits)
+	Credits        float64 `json:"credits,omitempty"` // mcp only: seconds × kling.credits_per_second, 0 when no rate is configured
 }
 
 // Create validates a request and registers a pending generation.
@@ -167,6 +174,17 @@ func (e *Engine) Create(ctx context.Context, req GenerateRequest) (*Generation, 
 		Resolution:    req.Resolution,
 		Audio:         e.Config.Kling.Audio,
 		Music:         req.Music,
+	}
+	var err2 error
+	if opts.VoiceDirection, err2 = cleanDirection("voice direction", req.VoiceDirection); err2 != nil {
+		return nil, err2
+	}
+	if opts.StageDirection, err2 = cleanDirection("stage direction", req.StageDirection); err2 != nil {
+		return nil, err2
+	}
+	actorSrc, err2 := e.checkActor(ctx, req, style)
+	if err2 != nil {
+		return nil, err2
 	}
 	if opts.TargetSeconds == 0 {
 		opts.TargetSeconds = e.Config.Video.TargetSeconds
@@ -244,6 +262,15 @@ func (e *Engine) Create(ctx context.Context, req GenerateRequest) (*Generation, 
 	if err := snapshotStyle(g.Dir, style); err != nil {
 		return nil, err
 	}
+	if actorSrc != "" {
+		dst := filepath.Join(g.Dir, "ACTOR"+strings.ToLower(filepath.Ext(actorSrc)))
+		if err := copyFile(actorSrc, dst); err != nil {
+			return nil, fmt.Errorf("copy actor photo: %w", err)
+		}
+		if g, err = e.Store.Update(g.Key, func(g *Generation) error { g.Options.ActorImage = dst; return nil }); err != nil {
+			return nil, err
+		}
+	}
 	return g, nil
 }
 
@@ -261,6 +288,9 @@ func (e *Engine) PreEstimate(g *Generation) Estimate {
 	est.Backend = e.Config.Kling.Backend
 	if g.Options.DryRun || est.Backend == KlingBackendMCP {
 		est.Units, est.USD = 0, 0
+	}
+	if est.Backend == KlingBackendMCP && !g.Options.DryRun {
+		est.Credits = float64(est.Seconds) * e.Config.Kling.CreditsPerSecond
 	}
 	return est
 }
@@ -288,6 +318,9 @@ func (e *Engine) Estimate(key string) (*Estimate, error) {
 	est.Backend = e.Config.Kling.Backend
 	if g.Options.DryRun || est.Backend == KlingBackendMCP {
 		est.Units, est.USD = 0, 0
+	}
+	if est.Backend == KlingBackendMCP && !g.Options.DryRun {
+		est.Credits = float64(est.Seconds) * e.Config.Kling.CreditsPerSecond
 	}
 	return est, nil
 }

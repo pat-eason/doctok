@@ -59,7 +59,11 @@ func (e *Engine) Plan(ctx context.Context, key string, obs Observer) (*Generatio
 		g.Stage = StageRender
 		if est != nil {
 			g.Kling.EstimatedUnits = est.Units
-			g.Message = fmt.Sprintf("Storyboard ready: %d scenes, %ds — est. %.1f Kling units (~$%.2f)", est.Scenes, est.Seconds, est.Units, est.USD)
+			if est.Backend == KlingBackendMCP {
+				g.Message = fmt.Sprintf("Storyboard ready: %d scenes, %ds — Kling MCP, billed in your Kling credits", est.Scenes, est.Seconds)
+			} else {
+				g.Message = fmt.Sprintf("Storyboard ready: %d scenes, %ds — est. %.1f Kling units (~$%.2f)", est.Scenes, est.Seconds, est.Units, est.USD)
+			}
 		}
 		return nil
 	})
@@ -161,6 +165,7 @@ func (e *Engine) stageScript(ctx context.Context, g *Generation, obs Observer) e
 	}
 	minS, maxS := e.Config.Video.MinSeconds, e.Config.Video.MaxSeconds
 	prompt := StoryboardPrompt(string(distill), style, spec, g.Options.Audio, g.Options.TargetSeconds, minS, maxS)
+	prompt = withDirections(prompt, StoryboardDirections(g.Options))
 	schema := StoryboardSchema(spec)
 
 	var sb *Storyboard

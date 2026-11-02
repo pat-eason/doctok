@@ -329,9 +329,21 @@ func (sb *Storyboard) pickToResize(spec kling.ModelSpec, up bool) int {
 
 // KlingPrompt builds the per-clip text-to-video prompt.
 func KlingPrompt(sb *Storyboard, s Scene, style Style, spec kling.ModelSpec, audio bool) string {
+	return KlingPromptWith(sb, s, style, spec, audio, PromptExtras{})
+}
+
+// KlingPromptWith is KlingPrompt plus per-generation extras: the user's actor
+// photo, voice direction and stage direction.
+func KlingPromptWith(sb *Storyboard, s Scene, style Style, spec kling.ModelSpec, audio bool, x PromptExtras) string {
 	var b strings.Builder
 	// Identical character blocks in every clip keep the creator consistent.
-	for _, c := range sb.Characters {
+	for i, c := range sb.Characters {
+		if x.Actor && i == 0 {
+			// The first frame is the user's photo: point at it instead of describing
+			// someone else, which would pull the model away from their real look.
+			fmt.Fprintf(&b, "[%s]: the person in the reference image; keep their exact face, hair, skin tone and outfit unchanged. ", c.Label)
+			continue
+		}
 		fmt.Fprintf(&b, "[%s]: %s. ", c.Label, strings.TrimSuffix(strings.TrimSpace(c.Description), "."))
 	}
 	setting := sb.Setting
@@ -341,11 +353,19 @@ func KlingPrompt(sb *Storyboard, s Scene, style Style, spec kling.ModelSpec, aud
 	if style.ChromaKey {
 		setting = "in front of a flat uniform bright green chroma-key screen"
 	}
-	if setting != "" {
+	if x.Actor {
+		b.WriteString("Setting: the same place as in the reference image. ")
+	} else if setting != "" {
 		fmt.Fprintf(&b, "Setting: %s. ", strings.TrimSuffix(setting, "."))
 	}
 	if a := strings.TrimSpace(s.Action); a != "" {
 		fmt.Fprintf(&b, "%s. ", strings.TrimSuffix(a, "."))
+	}
+	if st := strings.TrimSpace(x.Stage); st != "" {
+		fmt.Fprintf(&b, "Stage direction: %s. ", strings.TrimSuffix(st, "."))
+	}
+	if v := strings.TrimSpace(x.Voice); v != "" && spec.EffectiveAudio(audio) {
+		fmt.Fprintf(&b, "Voice direction: %s. ", strings.TrimSuffix(v, "."))
 	}
 	if d := strings.TrimSpace(s.Dance); d != "" {
 		fmt.Fprintf(&b, "Dance move: %s. ", strings.TrimSuffix(d, "."))
@@ -368,7 +388,13 @@ func KlingPrompt(sb *Storyboard, s Scene, style Style, spec kling.ModelSpec, aud
 		b.WriteString("The creator talks expressively to the camera. ")
 	}
 	b.WriteString("Style: ")
-	b.WriteString(style.PromptSuffix)
+	if x.Actor {
+		// Styles bake a set and lighting into their suffix ("cozy bedroom, purple LED
+		// strip…"), which would fight the room and light in the user's photo.
+		b.WriteString("vertical 9:16 smartphone footage, natural skin texture, casual vlog realism, lighting and background exactly as in the reference image, no background music")
+	} else {
+		b.WriteString(style.PromptSuffix)
+	}
 	b.WriteString(". No on-screen text, no subtitles, no logos, no watermark, consistent face and outfit.")
 	return strings.TrimSpace(b.String())
 }

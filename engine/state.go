@@ -89,9 +89,23 @@ type Generation struct {
 	Kling   KlingMetrics      `json:"kling"`
 	Video   VideoMetrics      `json:"video"`
 	Files   map[string]string `json:"files,omitempty"`
+	Hero    *Hero             `json:"hero,omitempty"` // presenter reference image (Kling MCP backend)
 
 	OwnerPID  int    `json:"owner_pid,omitempty"`
 	OwnerHost string `json:"owner_host,omitempty"`
+}
+
+// Hero is the one reference image every clip is animated from, so the presenter
+// and set stay the same across separately generated clips.
+type Hero struct {
+	TaskID    string    `json:"task_id,omitempty"` // Kling image generation id (persisted at submit so resume never pays twice)
+	URL       string    `json:"url,omitempty"`     // Kling-hosted image URL fed to image_to_video
+	Path      string    `json:"path,omitempty"`    // local copy for review
+	Prompt    string    `json:"prompt,omitempty"`
+	Source    string    `json:"source,omitempty"` // "generated" (text_to_image) or "upload" (the user's photo)
+	Approved  bool      `json:"approved"`
+	Attempts  int       `json:"attempts"` // image generations submitted (each costs credits)
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type SourceInfo struct {
@@ -116,6 +130,15 @@ type GenerationOptions struct {
 	Resolution    string `json:"resolution"`
 	Audio         bool   `json:"audio"`
 	Music         string `json:"music,omitempty"` // optional music bed mixed under dialogue
+
+	// ActorImage is a copy of the user's photo inside the generation folder. When
+	// set (Kling MCP backend), the presenter in every clip is that person: the
+	// photo is cropped to 9:16, uploaded, and each clip is animated from it.
+	ActorImage string `json:"actor_image,omitempty"`
+	// VoiceDirection and StageDirection are free-text direction from the user,
+	// applied to the storyboard and to every Kling clip prompt.
+	VoiceDirection string `json:"voice_direction,omitempty"` // how the presenter sounds (pace, energy, register, accent)
+	StageDirection string `json:"stage_direction,omitempty"` // what happens on screen (blocking, props, framing, mood)
 }
 
 type ClaudeMetrics struct {

@@ -29,6 +29,12 @@ func (e *Engine) Render(ctx context.Context, key string, obs Observer) (*Generat
 	if !e.stageDone(g, StageScript) {
 		return nil, fmt.Errorf("generation %s has no storyboard yet; run plan first", key)
 	}
+	if g.Options.ActorImage != "" && !g.Options.DryRun && e.Config.Kling.Backend != KlingBackendMCP && !e.stageDone(g, StageRender) {
+		return nil, errors.New("this generation uses an actor photo, which needs the Kling MCP backend (kling.backend = mcp)")
+	}
+	if e.NeedsHero(g) && !e.stageDone(g, StageRender) && (g.Hero == nil || !g.Hero.Approved) {
+		return nil, ErrHeroNotApproved
+	}
 	if g, err = e.claim(key); err != nil {
 		return nil, err
 	}
@@ -68,6 +74,11 @@ func (e *Engine) Render(ctx context.Context, key string, obs Observer) (*Generat
 	e.emit(obs, EventDone, StageDone, g.Message, g)
 	return g, nil
 }
+
+const (
+	stallWarnAfter = 15 * time.Minute
+	stallWarnEvery = 5 * time.Minute
+)
 
 func (e *Engine) clipPath(g *Generation, idx int) string {
 	return filepath.Join(g.Dir, DirClips, fmt.Sprintf("clip_%03d.mp4", idx))
@@ -130,6 +141,15 @@ func (e *Engine) stageRender(ctx context.Context, g *Generation, sb *Storyboard,
 			len(sb.Scenes), via, spec.ID, g.Options.Resolution, "9:16", g.Options.Audio, e.Config.Kling.Concurrency)
 	}
 
+	heroURL := ""
+	if client != nil && e.NeedsHero(g) {
+		heroURL = e.refreshHeroURL(ctx, g, client, obs)
+		if heroURL == "" {
+			return ErrHeroNotApproved
+		}
+		e.logf(obs, g.Key, StageRender, "Animating every clip from the approved presenter image")
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	conc := e.Config.Kling.Concurrency
@@ -157,8 +177,8 @@ func (e *Engine) stageRender(ctx context.Context, g *Generation, sb *Storyboard,
 			if g.Options.DryRun {
 				err = e.placeholderClip(ctx, g, i, scene, style, obs)
 			} else {
-				prompt := KlingPrompt(sb, scene, style, spec, g.Options.Audio)
-				err = e.renderClip(ctx, g, i, prompt, spec, client, obs)
+				prompt := KlingPromptWith(sb, scene, style, spec, g.Options.Audio, ExtrasFor(g.Options, heroURL != ""))
+				err = e.renderClip(ctx, g, i, prompt, spec, client, heroURL, obs)
 			}
 			if err != nil {
 				mu.Lock()
@@ -230,7 +250,7 @@ func (e *Engine) recomputeKling(g *Generation) {
 	}
 }
 
-func (e *Engine) renderClip(ctx context.Context, g *Generation, idx int, prompt string, spec kling.ModelSpec, client KlingAPI, obs Observer) error {
+func (e *Engine) renderClip(ctx context.Context, g *Generation, idx int, prompt string, spec kling.ModelSpec, client KlingAPI, heroURL string, obs Observer) error {
 	poll := time.Duration(e.Config.Kling.PollSeconds) * time.Second
 	if e.PollInterval > 0 {
 		poll = e.PollInterval
@@ -238,6 +258,7 @@ func (e *Engine) renderClip(ctx context.Context, g *Generation, idx int, prompt 
 		poll = mcpPollFloor
 	}
 	label := fmt.Sprintf("Scene %d/%d", idx+1, len(g.Kling.Clips))
+	var lastStallWarn time.Time
 	for {
 		cur, err := e.Store.Get(g.Key)
 		if err != nil {
@@ -265,7 +286,7 @@ func (e *Engine) renderClip(ctx context.Context, g *Generation, idx int, prompt 
 			for backoff := e.RetryBase; ; backoff = min(backoff*2, 2*time.Minute) {
 				task, err = client.CreateTextToVideo(ctx, kling.CreateRequest{
 					Model: spec, Prompt: prompt, NegativePrompt: KlingNegative, Resolution: g.Options.Resolution,
-					AspectRatio: "9:16", Duration: clip.Seconds, Audio: g.Options.Audio, ExternalID: ext,
+					AspectRatio: "9:16", Duration: clip.Seconds, Audio: g.Options.Audio, ExternalID: ext, FirstImageURL: heroURL,
 				})
 				if err == nil {
 					break
@@ -322,6 +343,16 @@ func (e *Engine) renderClip(ctx context.Context, g *Generation, idx int, prompt 
 			}
 			if clip.Status != want {
 				e.updateClip(g.Key, idx, obs, fmt.Sprintf("%s %s", label, want), func(c *Clip) { c.Status = want })
+			}
+			// A Kling clip normally finishes in a few minutes. Say so loudly instead
+			// of polling silently for an hour (the task keeps its credits reserved).
+			if clip.SubmittedAt != nil {
+				age := e.Now().Sub(*clip.SubmittedAt)
+				if age >= stallWarnAfter && e.Now().Sub(lastStallWarn) >= stallWarnEvery {
+					lastStallWarn = e.Now()
+					e.logf(obs, g.Key, StageRender, "%s: still %s on Kling after %s (usually a few minutes). Task %s may be stuck — check kling.ai; credits for it may be held.",
+						label, task.Status, age.Round(time.Minute), clip.TaskID)
+				}
 			}
 		case kling.TaskFailed:
 			msg := orDefault(task.Message, "Kling reported failure")

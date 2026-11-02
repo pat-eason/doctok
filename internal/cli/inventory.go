@@ -170,6 +170,13 @@ func newShowCmd() *cobra.Command {
 			} else {
 				kv("kling", fmt.Sprintf("%.2f units ≈ $%.2f (%s) · budget %.1f units · %s API", g.Kling.Units, g.Kling.CostUSD, tag, g.Kling.EstimatedUnits, orDash(g.Kling.APIStyle)))
 			}
+			if g.Hero != nil {
+				state := "awaiting approval"
+				if g.Hero.Approved {
+					state = "approved"
+				}
+				kv("presenter", fmt.Sprintf("%s (%s) · %d image generation(s)", homeShort(orDash(g.Hero.Path)), state, g.Hero.Attempts))
+			}
 			if len(g.Kling.Clips) > 0 {
 				fmt.Println(sLabel.Render("") + clipGrid(g.Kling.Clips))
 			}

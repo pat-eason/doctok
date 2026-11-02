@@ -60,10 +60,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/generations/{key}", s.del)
 	mux.HandleFunc("POST /api/generations/{key}/render", s.render)
 	mux.HandleFunc("POST /api/generations/{key}/resume", s.resume)
+	mux.HandleFunc("POST /api/generations/{key}/hero", s.hero)
+	mux.HandleFunc("POST /api/generations/{key}/hero-regenerate", s.heroRegenerate)
+	mux.HandleFunc("POST /api/generations/{key}/hero-approve", s.heroApprove)
 	mux.HandleFunc("POST /api/generations/{key}/stop", s.stop)
 	mux.HandleFunc("GET /api/generations/{key}/files/{file}", s.file)
 	mux.HandleFunc("GET /api/generations/{key}/storyboard", s.storyboard)
 	mux.HandleFunc("POST /api/upload", s.upload)
+	mux.HandleFunc("POST /api/upload-actor", s.uploadActor)
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("GET /api/doctor", s.doctor)
 	return guard(mux)
@@ -120,7 +124,8 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		"defaults": eng.Config.Video,
 		"kling": map[string]any{
 			"model": eng.Config.Kling.Model, "resolution": eng.Config.Kling.Resolution, "audio": eng.Config.Kling.Audio,
-			"unit_price_usd": eng.Config.Kling.UnitPriceUSD, "has_credentials": eng.Config.Kling.APIKey != "" || (eng.Config.Kling.AccessKey != "" && eng.Config.Kling.SecretKey != ""),
+			"unit_price_usd": eng.Config.Kling.UnitPriceUSD, "has_credentials": klingReady(eng.Config.Kling),
+			"backend": eng.Config.Kling.Backend, "credits_per_second": eng.Config.Kling.CreditsPerSecond,
 		},
 		"stages":       engine.Stages,
 		"stage_labels": engine.StageLabels,
@@ -147,7 +152,8 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	if eng != nil {
 		est, _ = eng.Estimate(g.Key)
 	}
-	writeJSON(w, 200, map[string]any{"generation": g, "estimate": est, "running_here": s.isRunning(g.Key)})
+	needsHero := eng != nil && eng.NeedsHero(g)
+	writeJSON(w, 200, map[string]any{"generation": g, "estimate": est, "running_here": s.isRunning(g.Key), "needs_hero": needsHero})
 }
 
 type createReq struct {
@@ -159,6 +165,10 @@ type createReq struct {
 	Captions      *bool  `json:"captions"`
 	Audio         *bool  `json:"audio"`
 	AutoRender    bool   `json:"auto_render"`
+
+	ActorImage     string `json:"actor_image"`
+	VoiceDirection string `json:"voice_direction"`
+	StageDirection string `json:"stage_direction"`
 }
 
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
@@ -173,8 +183,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !req.DryRun && req.AutoRender {
-		k := eng.Config.Kling
-		if k.APIKey == "" && (k.AccessKey == "" || k.SecretKey == "") {
+		if !klingReady(eng.Config.Kling) {
 			writeErr(w, 400, errors.New("no Kling credentials configured — run `doctok configure` or use a dry run"))
 			return
 		}
@@ -182,6 +191,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	g, err := eng.Create(r.Context(), engine.GenerateRequest{
 		Source: req.Source, Name: req.Name, Style: req.Style, TargetSeconds: req.TargetSeconds,
 		DryRun: req.DryRun, Captions: req.Captions, Audio: req.Audio,
+		ActorImage: req.ActorImage, VoiceDirection: req.VoiceDirection, StageDirection: req.StageDirection,
 	})
 	if err != nil {
 		writeErr(w, 400, err)
@@ -191,6 +201,13 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	s.start(g.Key, func(ctx context.Context, obs engine.Observer) error {
 		if _, err := eng.Plan(ctx, g.Key, obs); err != nil {
 			return err
+		}
+		if cur, err := eng.Store.Get(g.Key); err == nil && eng.NeedsHero(cur) {
+			if req.AutoRender { // the presenter image still needs a human look before any clip is paid for
+				_, err := eng.Hero(ctx, g.Key, false, obs)
+				return err
+			}
+			return nil
 		}
 		if req.AutoRender || req.DryRun {
 			_, err := eng.Render(ctx, g.Key, obs)
@@ -213,12 +230,13 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, err)
 		return
 	}
-	if !g.Options.DryRun {
-		k := eng.Config.Kling
-		if k.APIKey == "" && (k.AccessKey == "" || k.SecretKey == "") {
-			writeErr(w, 400, errors.New("no Kling credentials configured"))
-			return
-		}
+	if !g.Options.DryRun && !klingReady(eng.Config.Kling) {
+		writeErr(w, 400, errors.New("no Kling credentials configured"))
+		return
+	}
+	if eng.NeedsHero(g) && !engine.StageDoneFor(g, engine.StageRender) && (g.Hero == nil || !g.Hero.Approved) {
+		writeErr(w, 409, engine.ErrHeroNotApproved)
+		return
 	}
 	if !s.start(key, func(ctx context.Context, obs engine.Observer) error {
 		_, err := eng.Render(ctx, key, obs)
@@ -251,6 +269,10 @@ func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
 			if !g.Options.DryRun {
 				return nil // stop at approval
 			}
+		}
+		if cur, err := eng.Store.Get(key); err == nil && eng.NeedsHero(cur) && !engine.StageDoneFor(cur, engine.StageRender) && (cur.Hero == nil || !cur.Hero.Approved) {
+			_, err := eng.Hero(ctx, key, false, obs) // reuses an existing image; stops for approval
+			return err
 		}
 		_, err := eng.Render(ctx, key, obs)
 		return err
@@ -328,6 +350,7 @@ func (s *Server) start(key string, fn func(ctx context.Context, obs engine.Obser
 var allowedFiles = map[string]string{
 	engine.FileDoc: "text/markdown; charset=utf-8", engine.FileDistill: "text/markdown; charset=utf-8",
 	engine.FileScript: "application/json", engine.FileVideo: "video/mp4",
+	engine.FileHeroBase + ".jpg": "image/jpeg", engine.FileHeroBase + ".png": "image/png",
 }
 
 func (s *Server) file(w http.ResponseWriter, r *http.Request) {
@@ -519,4 +542,105 @@ func Serve(ctx context.Context, home, addr string, ready func(url string)) error
 		}
 		return err
 	}
+}
+
+// klingReady reports whether Kling renders can authenticate: the MCP backend
+// signs in through Claude Code (checked by `doctok doctor`), the API backend
+// needs a key or access/secret pair.
+func klingReady(k engine.KlingConfig) bool {
+	if k.Backend == engine.KlingBackendMCP {
+		return true
+	}
+	return k.APIKey != "" || (k.AccessKey != "" && k.SecretKey != "")
+}
+
+func (s *Server) heroJob(w http.ResponseWriter, r *http.Request, regenerate bool) {
+	key := r.PathValue("key")
+	eng, err := s.engine()
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	g, err := eng.Store.Get(key)
+	if err != nil {
+		writeErr(w, 404, err)
+		return
+	}
+	if !eng.NeedsHero(g) {
+		writeErr(w, 400, errors.New("this generation doesn't use a presenter image"))
+		return
+	}
+	if !s.start(key, func(ctx context.Context, obs engine.Observer) error {
+		_, err := eng.Hero(ctx, key, regenerate, obs)
+		return err
+	}) {
+		writeErr(w, 409, errors.New("already running"))
+		return
+	}
+	writeJSON(w, 202, map[string]string{"status": "generating presenter image"})
+}
+
+func (s *Server) hero(w http.ResponseWriter, r *http.Request)           { s.heroJob(w, r, false) }
+func (s *Server) heroRegenerate(w http.ResponseWriter, r *http.Request) { s.heroJob(w, r, true) }
+
+func (s *Server) heroApprove(w http.ResponseWriter, r *http.Request) {
+	eng, err := s.engine()
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	if s.isRunning(r.PathValue("key")) {
+		writeErr(w, 409, errors.New("still running"))
+		return
+	}
+	g, err := eng.ApproveHero(r.PathValue("key"))
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, g)
+}
+
+// uploadActor stores a presenter photo (JPG/PNG only) under ~/.doctok/uploads
+// and returns its path for the create request.
+func (s *Server) uploadActor(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	defer f.Close()
+	ext := strings.ToLower(filepath.Ext(hdr.Filename))
+	if ext == ".jpeg" {
+		ext = ".jpg"
+	}
+	if ext != ".jpg" && ext != ".png" {
+		writeErr(w, 400, errors.New("the actor photo must be a JPG or PNG"))
+		return
+	}
+	dir := filepath.Join(s.home, "uploads")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	p := filepath.Join(dir, fmt.Sprintf("actor-%s%s", time.Now().Format("20060102-150405"), ext))
+	out, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	n, err := io.Copy(out, io.LimitReader(f, 30<<20+1))
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil || n > 30<<20 {
+		os.Remove(p)
+		writeErr(w, 400, errors.New("couldn't store the photo (Kling's limit is 30 MB)"))
+		return
+	}
+	writeJSON(w, 200, map[string]string{"path": p})
 }

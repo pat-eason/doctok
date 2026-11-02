@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,7 @@ import (
 
 type genFlags struct {
 	name, style, length, model, resolution, music string
+	actor, voice, stage                           string
 	noAudio, noCaptions, dryRun, yes, plain       bool
 }
 
@@ -44,6 +47,9 @@ func newGenerateCmd() *cobra.Command {
 	fl.StringVarP(&f.length, "length", "l", "", "target length, e.g. 210, 3m30s, 4m (180–300s)")
 	fl.StringVar(&f.model, "model", "", "Kling model ("+strings.Join(kling.ModelIDs(), ", ")+")")
 	fl.StringVar(&f.resolution, "resolution", "", "Kling clip resolution: 1080p | 720p")
+	fl.StringVar(&f.actor, "actor", "", "photo (JPG/PNG) of the presenter; every clip is animated from it so the video stars that person (Kling MCP backend)")
+	fl.StringVar(&f.voice, "voice", "", `voice direction, e.g. "warm, unhurried, dry humor, slight southern accent" (shapes the script and each clip's audio)`)
+	fl.StringVar(&f.stage, "stage", "", `stage direction, e.g. "always sitting at a desk with a mug, handheld camera, a plant in the background" (shapes the script and each clip)`)
 	fl.StringVar(&f.music, "music", "", "optional music bed (audio file you have rights to) mixed under the dialogue")
 	fl.BoolVar(&f.noAudio, "no-audio", false, "silent clips (captions only)")
 	fl.BoolVar(&f.noCaptions, "no-captions", false, "don't burn in captions")
@@ -153,6 +159,7 @@ func runGenerate(cmd *cobra.Command, src string, f genFlags) error {
 	req := engine.GenerateRequest{
 		Source: src, Name: f.name, Style: f.style, DryRun: f.dryRun, TargetSeconds: target,
 		KlingModel: f.model, Resolution: f.resolution, Music: f.music,
+		ActorImage: f.actor, VoiceDirection: f.voice, StageDirection: f.stage,
 	}
 	if f.noAudio {
 		v := false
@@ -173,6 +180,15 @@ func runGenerate(cmd *cobra.Command, src string, f genFlags) error {
 	}
 	pre := eng.PreEstimate(g)
 	fmt.Printf("%s %s → %s\n", sOK.Render("✓"), sBold.Render(g.Name), sDim.Render(homeShort(g.Dir)))
+	if g.Options.ActorImage != "" {
+		fmt.Println(sDim.Render("  actor:  " + homeShort(f.actor) + "  (every clip is animated from this photo)"))
+	}
+	if g.Options.VoiceDirection != "" {
+		fmt.Println(sDim.Render("  voice:  " + g.Options.VoiceDirection))
+	}
+	if g.Options.StageDirection != "" {
+		fmt.Println(sDim.Render("  stage:  " + g.Options.StageDirection))
+	}
 	if !g.Options.DryRun && pre.Backend == engine.KlingBackendMCP {
 		fmt.Println(sDim.Render(fmt.Sprintf("  ~%d scenes on %s %s via the Kling MCP (uses your Kling credits, not API units); exact scene count after the storyboard",
 			pre.Scenes, pre.Model, pre.Resolution)))
@@ -220,7 +236,7 @@ func drive(ctx context.Context, eng *engine.Engine, g *engine.Generation, yes, p
 			choice := "render"
 			title := fmt.Sprintf("Render %d scenes with Kling for ~%.1f units (~$%.2f)?", est.Scenes, est.Units, est.USD)
 			if est.Backend == engine.KlingBackendMCP {
-				title = fmt.Sprintf("Render %d scenes through the Kling MCP (spends Kling credits on your account)?", est.Scenes)
+				title = fmt.Sprintf("Render %d scenes (%s) through the Kling MCP — %s?", est.Scenes, fmtSecs(float64(est.Seconds)), creditsText(est))
 			}
 			err := runForm(huh.NewGroup(huh.NewSelect[string]().
 				Title(title).
@@ -235,6 +251,15 @@ func drive(ctx context.Context, eng *engine.Engine, g *engine.Generation, yes, p
 				fmt.Println(sDim.Render("saved. storyboard: " + homeShort(g.Dir+"/"+engine.FileScript)))
 				return nil
 			}
+		}
+	}
+	if eng.NeedsHero(g) && !engine.StageDoneFor(g, engine.StageRender) {
+		var ok bool
+		if g, ok, err = heroGate(ctx, eng, g, yes, plain, unit); err != nil {
+			return reportFailure(eng, g, err)
+		}
+		if !ok {
+			return nil
 		}
 	}
 	g, err = runWithProgress(ctx, "render", g, unit, plain, func(ctx context.Context, obs engine.Observer) (*engine.Generation, error) {
@@ -292,7 +317,7 @@ func printStoryboard(sb *engine.Storyboard, est *engine.Estimate) {
 	if est.DryRun {
 		msg += " · dry run (no Kling spend)"
 	} else if est.Backend == engine.KlingBackendMCP {
-		msg += " · Kling MCP (your Kling credits)"
+		msg += " · Kling MCP · " + creditsText(est)
 	} else {
 		msg += fmt.Sprintf(" · est. %.1f units ≈ $%.2f", est.Units, est.USD)
 	}
@@ -431,4 +456,77 @@ func pickGeneration(eng *engine.Engine, title string, filter func(*engine.Genera
 		return "", err
 	}
 	return key, nil
+}
+
+// heroGate makes sure the presenter reference image exists and is approved
+// before any clip is rendered. Every clip is animated from it, so this is the
+// cheap checkpoint for "is this the person I want in the whole video?".
+// ok=false means the user chose to stop (state is saved; resume continues).
+func heroGate(ctx context.Context, eng *engine.Engine, g *engine.Generation, yes, plain bool, unit float64) (*engine.Generation, bool, error) {
+	regenerate := false
+	for {
+		var err error
+		if g.Hero == nil || g.Hero.Path == "" || regenerate {
+			regen := regenerate
+			g, err = runWithProgress(ctx, "presenter image", g, unit, plain, func(ctx context.Context, obs engine.Observer) (*engine.Generation, error) {
+				return eng.Hero(ctx, g.Key, regen, obs)
+			})
+			if err != nil {
+				return g, false, err
+			}
+			regenerate = false
+		}
+		if g.Hero != nil && g.Hero.Approved {
+			return g, true, nil
+		}
+		fmt.Println(sBold.Render("🖼  presenter image: ") + homeShort(g.Hero.Path))
+		if g.Hero.Source == "upload" {
+			fmt.Println(sDim.Render("   your photo, cropped to 9:16 — every clip is animated from this one frame, so check the framing (head and face in view)"))
+		} else {
+			fmt.Println(sDim.Render("   every clip is animated from this one frame, so this is the person and set for the whole video"))
+		}
+		if yes {
+			fmt.Println(sDim.Render("   --yes: using it"))
+		} else {
+			if !interactive() {
+				return g, false, fmt.Errorf("presenter image awaiting approval at %s; re-run with --yes to use it, or `doctok resume %s` interactively", g.Hero.Path, g.Key)
+			}
+			if runtime.GOOS == "darwin" {
+				_ = exec.Command("open", g.Hero.Path).Start()
+			}
+			choice := "use"
+			opts := []huh.Option[string]{huh.NewOption("✅ Use it — start rendering clips", "use")}
+			if g.Hero.Source != "upload" { // re-running an upload would just produce the same crop
+				opts = append(opts, huh.NewOption("🔁 Regenerate (spends a few more Kling credits)", "regen"))
+			}
+			opts = append(opts, huh.NewOption("⏸  Stop — nothing is rendered; `doctok resume "+g.Key+"` continues", "stop"))
+			if err := runForm(huh.NewGroup(huh.NewSelect[string]().
+				Title("Use this presenter for every clip?").
+				Options(opts...).Value(&choice))); err != nil {
+				return g, false, err
+			}
+			switch choice {
+			case "regen":
+				regenerate = true
+				continue
+			case "stop":
+				fmt.Println(sDim.Render("saved. presenter image: " + homeShort(g.Hero.Path)))
+				return g, false, nil
+			}
+		}
+		if g, err = eng.ApproveHero(g.Key); err != nil {
+			return g, false, err
+		}
+		return g, true, nil
+	}
+}
+
+// creditsText describes an MCP render's cost honestly: Kling doesn't publish
+// per-clip credit prices through the MCP, so without a configured rate the
+// answer is "unknown", never a misleading $0.
+func creditsText(est *engine.Estimate) string {
+	if est.Credits > 0 {
+		return fmt.Sprintf("~%.0f Kling credits (at your kling.credits_per_second)", est.Credits)
+	}
+	return "spends your Kling credits (price per clip unknown; set kling.credits_per_second for an estimate)"
 }

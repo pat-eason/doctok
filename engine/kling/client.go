@@ -256,6 +256,9 @@ type CreateRequest struct {
 	Duration       int
 	Audio          bool
 	ExternalID     string
+	// FirstImageURL, when set, animates this image (image-to-video) instead of
+	// generating from text alone. Only the MCP backend supports it.
+	FirstImageURL string
 }
 
 // Task is a normalized task snapshot.

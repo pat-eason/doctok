@@ -1,12 +1,18 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +52,9 @@ type mcpResult struct {
 	GenerationID string  `json:"generation_id"`
 	Status       string  `json:"status"` // submitted | processing | succeeded | failed
 	VideoURL     string  `json:"video_url"`
+	ImageURL     string  `json:"image_url"`
+	UploadURL    string  `json:"upload_url"`
+	UploadTicket string  `json:"upload_ticket"`
 	Credits      float64 `json:"credits"`
 	CreditsKnown bool    `json:"credits_known"`
 	ErrorKind    string  `json:"error_kind"` // none | auth | no_credits | busy | blocked | not_found | other
@@ -55,7 +64,7 @@ type mcpResult struct {
 const mcpSchema = `{"type":"object","required":["ok","generation_id","status","video_url","credits","credits_known","error_kind","error"],"properties":{` +
 	`"ok":{"type":"boolean"},"generation_id":{"type":"string"},` +
 	`"status":{"type":"string","enum":["submitted","processing","succeeded","failed"]},` +
-	`"video_url":{"type":"string"},"credits":{"type":"number"},"credits_known":{"type":"boolean"},` +
+	`"video_url":{"type":"string"},"image_url":{"type":"string"},"upload_url":{"type":"string"},"upload_ticket":{"type":"string"},"credits":{"type":"number"},"credits_known":{"type":"boolean"},` +
 	`"error_kind":{"type":"string","enum":["none","auth","no_credits","busy","blocked","not_found","other"]},` +
 	`"error":{"type":"string"}}}`
 
@@ -175,27 +184,40 @@ func (k *klingMCP) CreateTextToVideo(ctx context.Context, r kling.CreateRequest)
 	if r.Model.PromptMax > 0 && len([]rune(prompt)) > r.Model.PromptMax {
 		prompt = string([]rune(prompt)[:r.Model.PromptMax])
 	}
+	tool := "text_to_video"
 	args := []map[string]string{
 		{"name": "prompt", "value": prompt},
 		{"name": "duration", "value": strconv.Itoa(r.Duration)},
-		{"name": "aspect_ratio", "value": r.AspectRatio},
 		{"name": "resolution", "value": r.Resolution},
 		{"name": "imageCount", "value": "1"}, // one video per clip; the default can multiply the spend
+	}
+	payload := map[string]any{
+		"model":       r.Model.MCPName,
+		"taskTraceId": k.trace,
+		"rationale":   "doctok renders one vertical clip of an explainer video; settings are fixed by the user's doctok config",
+	}
+	if r.FirstImageURL != "" {
+		// Image-to-video follows the first frame's aspect ratio (the tool has no
+		// aspect_ratio argument), so the hero image itself must already be 9:16.
+		tool = "image_to_video"
+		payload["inputs"] = []map[string]string{{"name": "first_image", "inputType": "URL", "url": r.FirstImageURL}}
+	} else {
+		args = append(args, map[string]string{"name": "aspect_ratio", "value": r.AspectRatio})
 	}
 	if r.Model.Audio == kling.AudioOptional {
 		args = append(args, map[string]string{"name": "enable_audio", "value": strconv.FormatBool(r.Audio)})
 	}
-	call, _ := json.Marshal(map[string]any{
-		"model":       r.Model.MCPName,
-		"arguments":   args,
-		"taskTraceId": k.trace,
-		"rationale":   "doctok renders one vertical clip of an explainer video; settings are fixed by the user's doctok config",
-	})
-	res, err := k.call(ctx, []string{"text_to_video"}, fmt.Sprintf(`Call %s__text_to_video EXACTLY ONCE with precisely this JSON as its input (do not add, drop or change anything, and do not call who_am_i first):
+	if r.Model.MCPName == "kling-video-v3_0" {
+		// 3.0 defaults to smart multi-shot splitting, which would cut inside a clip.
+		args = append(args, map[string]string{"name": "prefer_multi_shots", "value": "false"})
+	}
+	payload["arguments"] = args
+	call, _ := json.Marshal(payload)
+	res, err := k.call(ctx, []string{tool}, fmt.Sprintf(`Call %s__%s EXACTLY ONCE with precisely this JSON as its input (do not add, drop or change anything, and do not call who_am_i first):
 %s
 
 Then return generation_id = the generation id from the result (the value query_tasks takes as generationId), status = "submitted" (or the status the result reports), ok=true.
-If the call errors, return ok=false and do NOT call it again.`, k.scope, call))
+If the call errors, return ok=false and do NOT call it again.`, k.scope, tool, call))
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +252,53 @@ Return: generation_id (same id), status = submitted/processing while it is queue
 	return t, nil
 }
 
+// heroImageModel renders the presenter reference image. kling-image-v3_0
+// supports 9:16 and is built for consistency; one image costs a few credits.
+const heroImageModel = "kling-image-v3_0"
+
+// CreateImage submits one text-to-image job and returns its generation id.
+func (k *klingMCP) CreateImage(ctx context.Context, prompt string) (string, error) {
+	call, _ := json.Marshal(map[string]any{
+		"model": heroImageModel,
+		"arguments": []map[string]string{
+			{"name": "prompt", "value": prompt},
+			{"name": "aspect_ratio", "value": "9:16"},
+			{"name": "img_resolution", "value": "2k"},
+			{"name": "imageCount", "value": "1"},
+		},
+		"taskTraceId": k.trace,
+		"rationale":   "doctok presenter reference image: every clip of the video is animated from this one frame so the presenter and set stay consistent",
+	})
+	res, err := k.call(ctx, []string{"text_to_image"}, fmt.Sprintf(`Call %s__text_to_image EXACTLY ONCE with precisely this JSON as its input (do not add, drop or change anything, and do not call who_am_i first):
+%s
+
+Then return generation_id = the generation id from the result (the value query_tasks takes as generationId), status = "submitted", ok=true.
+If the call errors, return ok=false and do NOT call it again.`, k.scope, call))
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(res.GenerationID) == "" {
+		return "", &kling.APIError{Code: -1, Message: "image submit succeeded but the Kling MCP returned no generation id (check the Kling web app before retrying: an image may have been charged)"}
+	}
+	return strings.TrimSpace(res.GenerationID), nil
+}
+
+// GetImage polls an image job. url is empty until the image is ready.
+func (k *klingMCP) GetImage(ctx context.Context, id string) (status, url string, err error) {
+	res, err := k.call(ctx, []string{"query_tasks"}, fmt.Sprintf(`Call %s__query_tasks once with generationId %q and taskTraceId %q. Do not call any other tool.
+Return: generation_id (same id), status = submitted/processing while queued or running, succeeded when the finished IMAGE is available, failed if it failed; image_url = the direct https URL of the finished IMAGE file (png/jpg; empty unless succeeded; never a page/share link or a thumbnail; leave video_url empty); on failure put the reason in "error".`,
+		k.scope, id, k.trace))
+	if err != nil {
+		return "", "", err
+	}
+	status = res.Status
+	url = strings.TrimSpace(res.ImageURL)
+	if status == "succeeded" && url == "" {
+		status = "processing" // finished but no URL yet; poll again
+	}
+	return status, url, nil
+}
+
 func (k *klingMCP) Download(ctx context.Context, url, path string) (int64, error) {
 	return kling.DownloadFile(ctx, url, path, k.ua)
 }
@@ -256,4 +325,100 @@ func uuidV7() string {
 	b[6] = b[6]&0x0f | 0x70
 	b[8] = b[8]&0x3f | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// allowUploadHost gates where a photo may be sent. The upload URL comes from a
+// Claude relay run, so it is checked here instead of trusted: only Kling's own
+// hosts, over https. (Tests override this.)
+var allowUploadHost = func(u *url.URL) bool {
+	h := strings.ToLower(u.Hostname())
+	return u.Scheme == "https" && (h == "kling.ai" || strings.HasSuffix(h, ".kling.ai") || h == "klingai.com" || strings.HasSuffix(h, ".klingai.com"))
+}
+
+// UploadImage sends a local JPG/PNG to Kling and returns its hosted URL (usable
+// as an image_to_video first frame). Uploading is free; the one-time ticket
+// comes from the MCP's file_upload tool and the bytes are POSTed by doctok.
+func (k *klingMCP) UploadImage(ctx context.Context, path string) (string, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	ctype := "image/jpeg"
+	if strings.EqualFold(filepath.Ext(path), ".png") {
+		ctype = "image/png"
+	}
+	call, _ := json.Marshal(map[string]any{
+		"filename": filepath.Base(path), "contentType": ctype, "size": st.Size(), "taskTraceId": k.trace,
+	})
+	res, err := k.call(ctx, []string{"file_upload"}, fmt.Sprintf(`Call %s__file_upload EXACTLY ONCE with precisely this JSON as its input:
+%s
+
+Then return upload_ticket = the "ticket" string and upload_url = the "uploadUrl" string from the result, exactly as given, ok=true, status="succeeded", generation_id="". Do not try to upload anything yourself and do not call any other tool.`, k.scope, call))
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(strings.TrimSpace(res.UploadURL))
+	if err != nil || !allowUploadHost(u) {
+		return "", fmt.Errorf("refusing to upload your photo to an unexpected address (%q); expected a Kling https host", res.UploadURL)
+	}
+	if strings.TrimSpace(res.UploadTicket) == "" {
+		return "", errors.New("kling mcp: file_upload returned no ticket")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("ticket", strings.TrimSpace(res.UploadTicket))
+	hdr := make(map[string][]string)
+	hdr["Content-Disposition"] = []string{fmt.Sprintf(`form-data; name="file"; filename=%q`, filepath.Base(path))}
+	hdr["Content-Type"] = []string{ctype}
+	part, err := mw.CreatePart(hdr)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return "", err
+	}
+	if err := mw.Close(); err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("User-Agent", k.ua)
+	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("upload photo: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var out struct {
+		Status  int    `json:"status"`
+		Result  int    `json:"result"`
+		Message string `json:"message"`
+		Data    struct {
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || resp.StatusCode != http.StatusOK || out.Data.URL == "" {
+		msg := out.Message
+		if msg == "" {
+			msg = snippetStr(raw)
+		}
+		return "", fmt.Errorf("upload photo: HTTP %d: %s", resp.StatusCode, msg)
+	}
+	return out.Data.URL, nil
+}
+
+func snippetStr(b []byte) string {
+	s := strings.TrimSpace(string(b))
+	if len(s) > 200 {
+		s = s[:200] + "…"
+	}
+	return s
 }

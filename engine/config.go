@@ -58,19 +58,23 @@ type ClaudeConfig struct {
 }
 
 type KlingConfig struct {
-	Backend      string  `json:"backend,omitempty"`    // api (default) | mcp
-	MCPServer    string  `json:"mcp_server,omitempty"` // name from `claude mcp list`; empty = autodetect "kling"
-	APIKey       string  `json:"api_key,omitempty"`
-	AccessKey    string  `json:"access_key,omitempty"`
-	SecretKey    string  `json:"secret_key,omitempty"`
-	BaseURL      string  `json:"base_url"`
-	APIStyle     string  `json:"api_style"` // auto | standard | legacy
-	Model        string  `json:"model"`
-	Resolution   string  `json:"resolution"` // 720p | 1080p
-	Audio        bool    `json:"audio"`      // native audio (spoken dialogue)
-	Concurrency  int     `json:"concurrency"`
-	PollSeconds  int     `json:"poll_seconds"`
-	UnitPriceUSD float64 `json:"unit_price_usd"`
+	Backend   string `json:"backend,omitempty"`    // api (default) | mcp
+	MCPServer string `json:"mcp_server,omitempty"` // name from `claude mcp list`; empty = autodetect "kling"
+	// CreditsPerSecond prices MCP renders for the estimate (Kling doesn't publish
+	// per-clip credit prices through the MCP). 0 = unknown: no credit estimate is shown.
+	CreditsPerSecond float64 `json:"credits_per_second,omitempty"`
+	NoHero           bool    `json:"no_hero,omitempty"` // mcp: skip the presenter reference image (clips are then independent text-to-video)
+	APIKey           string  `json:"api_key,omitempty"`
+	AccessKey        string  `json:"access_key,omitempty"`
+	SecretKey        string  `json:"secret_key,omitempty"`
+	BaseURL          string  `json:"base_url"`
+	APIStyle         string  `json:"api_style"` // auto | standard | legacy
+	Model            string  `json:"model"`
+	Resolution       string  `json:"resolution"` // 720p | 1080p
+	Audio            bool    `json:"audio"`      // native audio (spoken dialogue)
+	Concurrency      int     `json:"concurrency"`
+	PollSeconds      int     `json:"poll_seconds"`
+	UnitPriceUSD     float64 `json:"unit_price_usd"`
 }
 
 type NotionConfig struct {

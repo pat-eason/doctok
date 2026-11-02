@@ -1,14 +1,19 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/pat-eason/doctok/engine"
 )
 
 func TestGuardAndAPI(t *testing.T) {
@@ -52,4 +57,115 @@ func TestGuardAndAPI(t *testing.T) {
 		t.Fatalf("file traversal: %d", w.Code)
 	}
 	_ = http.StatusOK
+}
+
+// The Kling MCP backend has no API key. The UI must not treat that as "no
+// credentials", must explain the presenter-image gate instead of failing
+// silently, and must serve the presenter image for review.
+func TestMCPBackendRenderGateAndHeroImage(t *testing.T) {
+	home := t.TempDir()
+	cfg := engine.DefaultConfig()
+	cfg.Kling.Backend = engine.KlingBackendMCP
+	if err := engine.SaveConfig(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	doc := filepath.Join(t.TempDir(), "doc.md")
+	_ = os.WriteFile(doc, []byte("# hi\n\nsome doc"), 0o644)
+	eng := engine.New(home, cfg)
+	g, err := eng.Create(context.Background(), engine.GenerateRequest{Source: doc, Name: "mcp ui"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if _, err := eng.Store.Update(g.Key, func(g *engine.Generation) error {
+		g.Status = engine.StatusAwaitingApproval
+		g.StageTimes = map[string]*engine.StageTiming{engine.StageScript: {FinishedAt: &now}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h := New(context.Background(), home).Handler()
+	do := func(method, target string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, target, strings.NewReader("{}"))
+		r.Host = "localhost:7878"
+		r.Header.Set("X-Doctok", "1")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	var meta struct {
+		Kling struct {
+			HasCredentials bool   `json:"has_credentials"`
+			Backend        string `json:"backend"`
+		} `json:"kling"`
+	}
+	if err := json.Unmarshal(do("GET", "/api/meta").Body.Bytes(), &meta); err != nil || !meta.Kling.HasCredentials || meta.Kling.Backend != "mcp" {
+		t.Fatalf("MCP backend must count as ready (no API key needed): %+v %v", meta, err)
+	}
+
+	// Render before the presenter is approved: a clear 409, never "no credentials".
+	w := do("POST", "/api/generations/"+g.Key+"/render")
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "presenter") || strings.Contains(w.Body.String(), "credentials") {
+		t.Fatalf("render gate: %d %s", w.Code, w.Body.String())
+	}
+	// Nothing to approve yet.
+	if w := do("POST", "/api/generations/"+g.Key+"/hero-approve"); w.Code != 400 {
+		t.Fatalf("approve without an image: %d %s", w.Code, w.Body.String())
+	}
+	// With an image on disk: it is served, approval works, and the gate opens.
+	img := filepath.Join(g.Dir, engine.FileHeroBase+".jpg")
+	_ = os.WriteFile(img, []byte{0xFF, 0xD8, 0xFF, 0xE0}, 0o644)
+	if _, err := eng.Store.Update(g.Key, func(g *engine.Generation) error {
+		g.Hero = &engine.Hero{TaskID: "IMG-1", URL: "https://cdn.example/h.jpg", Path: img, Attempts: 1}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if w := do("GET", "/api/generations/"+g.Key+"/files/HERO.jpg"); w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("hero image: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+	if w := do("POST", "/api/generations/"+g.Key+"/hero-approve"); w.Code != 200 {
+		t.Fatalf("approve: %d %s", w.Code, w.Body.String())
+	}
+	cur, _ := eng.Store.Get(g.Key)
+	if cur.Hero == nil || !cur.Hero.Approved {
+		t.Fatalf("hero not approved: %+v", cur.Hero)
+	}
+}
+
+func TestUploadActorPhoto(t *testing.T) {
+	home := t.TempDir()
+	h := New(context.Background(), home).Handler()
+	post := func(filename string, content []byte) *httptest.ResponseRecorder {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		fw, _ := mw.CreateFormFile("file", filename)
+		_, _ = fw.Write(content)
+		_ = mw.Close()
+		r := httptest.NewRequest("POST", "/api/upload-actor", &body)
+		r.Host = "localhost:7878"
+		r.Header.Set("X-Doctok", "1")
+		r.Header.Set("Content-Type", mw.FormDataContentType())
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for _, bad := range []string{"notes.md", "me.gif", "me.jpg.exe", "../../etc/passwd"} {
+		if w := post(bad, []byte("x")); w.Code != 400 {
+			t.Errorf("%s accepted: %d %s", bad, w.Code, w.Body.String())
+		}
+	}
+	w := post("Me.JPEG", []byte{0xFF, 0xD8, 0xFF, 0xE0})
+	var out struct{ Path string }
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || w.Code != 200 {
+		t.Fatalf("upload: %d %s", w.Code, w.Body.String())
+	}
+	if filepath.Dir(out.Path) != filepath.Join(home, "uploads") || filepath.Ext(out.Path) != ".jpg" {
+		t.Fatalf("stored at %q", out.Path)
+	}
+	if st, err := os.Stat(out.Path); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("photo must be private (0600): %v %v", err, st)
+	}
 }

@@ -3,6 +3,9 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -214,6 +217,7 @@ esac
 	e.Config.Claude.Binary = bin
 	e.Config.Kling.Backend = KlingBackendMCP
 	e.Config.Kling.APIKey, e.Config.Kling.APIStyle = "", KlingStyleAuto // prove the API creds are not needed
+	e.Config.Kling.NoHero = true                                        // independent text-to-video clips; the hero flow has its own test
 
 	ctx := context.Background()
 	g, err := e.Create(ctx, GenerateRequest{Source: writeDoc(t), Name: "mcp tea"})
@@ -245,5 +249,195 @@ esac
 		if !strings.HasPrefix(c.TaskID, "GEN-") || c.Attempts != 1 || c.Status != ClipDownloaded {
 			t.Errorf("clip %d: %+v", i, c)
 		}
+	}
+}
+
+func TestKlingMCPImageToVideoRequestShape(t *testing.T) {
+	ok := `{"ok":true,"generation_id":"gen-9","status":"submitted","video_url":"","image_url":"","credits":0,"credits_known":false,"error_kind":"none","error":""}`
+	e, log := mcpEngine(t, map[string]string{"__image_to_video": ok, "__text_to_video": ok})
+	ctx := context.Background()
+	c, _, err := e.newKlingBackend(ctx, e.Config.Kling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, _ := kling.Lookup("kling-3.0")
+	if _, err := c.CreateTextToVideo(ctx, kling.CreateRequest{Model: spec, Prompt: "p", Resolution: "1080p", Duration: 5, Audio: true, FirstImageURL: "https://cdn.example/hero.jpg"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateTextToVideo(ctx, kling.CreateRequest{Model: spec, Prompt: "p", Resolution: "1080p", Duration: 5, Audio: true}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(log)
+	var runs []string
+	for _, r := range strings.Split(string(b), "\n---\n") {
+		if strings.TrimSpace(r) != "" {
+			runs = append(runs, r)
+		}
+	}
+	if len(runs) != 2 {
+		t.Fatalf("want 2 relay runs, got %d:\n%s", len(runs), b)
+	}
+	i2v, t2v := runs[0], runs[1]
+	for _, want := range []string{
+		"--allowedTools mcp__kling__image_to_video",
+		`"inputs":[{"inputType":"URL","name":"first_image","url":"https://cdn.example/hero.jpg"}]`,
+		`{"name":"prefer_multi_shots","value":"false"}`, // 3.0 defaults to multi-shot, which cuts inside a clip
+		`{"name":"imageCount","value":"1"}`,
+	} {
+		if !strings.Contains(i2v, want) {
+			t.Errorf("image_to_video run missing %q:\n%s", want, i2v)
+		}
+	}
+	if strings.Contains(i2v, "aspect_ratio") {
+		t.Errorf("image_to_video has no aspect_ratio argument (the first frame decides):\n%s", i2v)
+	}
+	if !strings.Contains(t2v, "--allowedTools mcp__kling__text_to_video") || !strings.Contains(t2v, `{"name":"aspect_ratio","value":"9:16"}`) || strings.Contains(t2v, "first_image") {
+		t.Errorf("text_to_video run wrong:\n%s", t2v)
+	}
+}
+
+func TestHeroPromptUsesCastAndSet(t *testing.T) {
+	sb := &Storyboard{Characters: []Character{{Label: "Bestie", Description: "early-20s presenter in a lavender hoodie"}}, Setting: "a cozy bedroom studio"}
+	p := HeroPrompt(sb, Style{})
+	for _, want := range []string{"9:16", "Bestie: early-20s presenter in a lavender hoodie.", "Setting: a cozy bedroom studio.", "mouth closed", "No text"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("hero prompt missing %q: %s", want, p)
+		}
+	}
+	if cp := HeroPrompt(sb, Style{ChromaKey: true}); !strings.Contains(cp, "chroma-key") || strings.Contains(cp, "bedroom") {
+		t.Errorf("chroma-key styles must put the presenter on green: %s", cp)
+	}
+}
+
+// TestPipelineViaKlingMCPWithHero: the reference image is generated once, gated
+// on approval, and every clip is animated from it.
+func TestPipelineViaKlingMCPWithHero(t *testing.T) {
+	needFFmpeg(t)
+	fk := newFakeKling(t, makeClipVideo(t))
+	e := testEngine(t, fk)
+	orig := e.Config.Claude.Binary
+
+	heroSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 'J', 'F', 'I', 'F'})
+	}))
+	t.Cleanup(heroSrv.Close)
+	heroURL := heroSrv.URL + "/hero.jpg"
+
+	dir := t.TempDir()
+	vcount, icount := filepath.Join(dir, "v"), filepath.Join(dir, "i")
+	submits, images := filepath.Join(dir, "submits.log"), filepath.Join(dir, "images.log")
+	reply := func(body string) string {
+		env, _ := json.Marshal(map[string]any{"type": "result", "subtype": "success", "result": "", "structured_output": json.RawMessage(body), "total_cost_usd": 0.001})
+		return string(env)
+	}
+	script := `#!/bin/sh
+case "$*" in
+  *"mcp list"*) echo "kling: https://kling.ai/mcp (HTTP) - ✔ Connected"; exit 0;;
+  *"auth status"*|*--version*) exec '` + orig + `' "$@";;
+esac
+IN=$(cat)
+case "$IN" in
+  *__text_to_image*)
+    n=$(( $(cat '` + icount + `' 2>/dev/null || echo 0) + 1 )); echo $n > '` + icount + `'
+    echo "$IN" >> '` + images + `'
+    cat <<EOF
+` + reply(`{"ok":true,"generation_id":"IMG-$n","status":"submitted","video_url":"","image_url":"","credits":0,"credits_known":false,"error_kind":"none","error":""}`) + `
+EOF
+    ;;
+  *__image_to_video*|*__text_to_video*)
+    n=$(( $(cat '` + vcount + `' 2>/dev/null || echo 0) + 1 )); echo $n > '` + vcount + `'
+    echo "$IN" >> '` + submits + `'
+    cat <<EOF
+` + reply(`{"ok":true,"generation_id":"GEN-$n","status":"submitted","video_url":"","image_url":"","credits":0,"credits_known":false,"error_kind":"none","error":""}`) + `
+EOF
+    ;;
+  *__query_tasks*IMG-*)
+    cat <<'EOF'
+` + reply(`{"ok":true,"generation_id":"x","status":"succeeded","video_url":"","image_url":"`+heroURL+`","credits":0,"credits_known":false,"error_kind":"none","error":""}`) + `
+EOF
+    ;;
+  *__query_tasks*)
+    cat <<'EOF'
+` + reply(`{"ok":true,"generation_id":"x","status":"succeeded","video_url":"`+fk.srv.URL+`/files/clip.mp4","image_url":"","credits":0,"credits_known":false,"error_kind":"none","error":""}`) + `
+EOF
+    ;;
+  *) printf '%s' "$IN" | '` + orig + `' "$@";;
+esac
+`
+	bin := filepath.Join(dir, "claude")
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.Config.Claude.Binary = bin
+	e.Config.Kling.Backend = KlingBackendMCP
+	e.Config.Kling.APIKey, e.Config.Kling.APIStyle = "", KlingStyleAuto
+	read := func(p string) string { b, _ := os.ReadFile(p); return string(b) }
+
+	ctx := context.Background()
+	g, err := e.Create(ctx, GenerateRequest{Source: writeDoc(t), Name: "hero tea"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, err = e.Plan(ctx, g.Key, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !e.NeedsHero(g) {
+		t.Fatal("mcp backend should use a hero image by default")
+	}
+
+	// 1. No clips may be paid for before the presenter is approved.
+	if _, err := e.Render(ctx, g.Key, nil); !errors.Is(err, ErrHeroNotApproved) {
+		t.Fatalf("render before approval: %v", err)
+	}
+	if read(submits) != "" {
+		t.Fatal("a clip was submitted without an approved presenter image")
+	}
+
+	// 2. Generate the image once; asking again must not pay again.
+	g, err = e.Hero(ctx, g.Key, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Status != StatusAwaitingApproval || g.Hero == nil || g.Hero.TaskID != "IMG-1" || g.Hero.Approved || !fileExists(g.Hero.Path) || filepath.Ext(g.Hero.Path) != ".jpg" {
+		t.Fatalf("hero state %+v status=%s", g.Hero, g.Status)
+	}
+	if _, err = e.Hero(ctx, g.Key, false, nil); err != nil || strings.Count(read(images), "taskTraceId") != 1 {
+		t.Fatalf("re-running Hero must reuse the image: %v\n%s", err, read(images))
+	}
+	if !strings.Contains(read(images), `"kling-image-v3_0"`) || !strings.Contains(read(images), `{"name":"aspect_ratio","value":"9:16"}`) {
+		t.Fatalf("image request wrong:\n%s", read(images))
+	}
+
+	// 3. Regenerating pays for a second image and resets approval.
+	if g, err = e.Hero(ctx, g.Key, true, nil); err != nil || g.Hero.TaskID != "IMG-2" || g.Hero.Attempts != 2 {
+		t.Fatalf("regenerate: %v %+v", err, g.Hero)
+	}
+	if _, err := e.Render(ctx, g.Key, nil); !errors.Is(err, ErrHeroNotApproved) {
+		t.Fatalf("still unapproved: %v", err)
+	}
+
+	// 4. Approve, render: every clip is image_to_video from the hero URL.
+	if _, err := e.ApproveHero(g.Key); err != nil {
+		t.Fatal(err)
+	}
+	g, err = e.Render(ctx, g.Key, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Status != StatusSucceeded || !fileExists(filepath.Join(g.Dir, FileVideo)) {
+		t.Fatalf("status=%s err=%s", g.Status, g.Error)
+	}
+	sub := read(submits)
+	if n := strings.Count(sub, "taskTraceId"); n != 4 {
+		t.Fatalf("want 4 clip submits, got %d", n)
+	}
+	if n := strings.Count(sub, `"name":"first_image"`); n != 4 || !strings.Contains(sub, heroURL) {
+		t.Fatalf("every clip must start from the hero image (%d/4):\n%s", n, sub)
+	}
+	if strings.Contains(sub, "__text_to_video") || strings.Contains(sub, `"name":"aspect_ratio"`) {
+		t.Fatalf("clips must be image_to_video without aspect_ratio:\n%s", sub)
+	}
+	if got := strings.Count(read(images), "taskTraceId"); got != 2 {
+		t.Fatalf("exactly the two requested images should have been generated, got %d", got)
 	}
 }

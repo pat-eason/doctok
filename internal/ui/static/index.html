@@ -14,7 +14,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--cyan)}
-button,input,select{font:inherit;color:inherit}
+button,input,select,textarea{font:inherit;color:inherit}
 header{display:flex;align-items:center;gap:14px;padding:16px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(13,11,20,.92);backdrop-filter:blur(8px);z-index:5}
 .logo{font-weight:900;font-size:22px;letter-spacing:-.5px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 .tag{color:var(--dim);font-size:13px}
@@ -29,8 +29,10 @@ main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px;padding
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
 h2{margin:0 0 12px;font-size:16px;letter-spacing:.2px}
 label{display:block;font-size:12px;color:var(--dim);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.6px}
-input[type=text],select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
-input[type=text]:focus,select:focus{border-color:var(--cyan)}
+input[type=text],select,textarea{width:100%;resize:vertical;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
+input[type=text]:focus,select:focus,textarea:focus{border-color:var(--cyan)}
+details#direction{margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+details#direction summary{cursor:pointer;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#9a9ab0)}
 .row{display:flex;gap:10px;align-items:center}
 .row > *{flex:1}
 .drop{border:1.5px dashed var(--line);border-radius:10px;padding:10px;text-align:center;color:var(--dim);font-size:13px;margin-top:8px;cursor:pointer}
@@ -86,6 +88,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .ok{color:var(--green)} .warn{color:var(--yellow)} .fail{color:var(--red)} .skip{color:var(--dim)}
 .cd .h{color:var(--dim);font-size:12px}
 .empty{color:var(--dim);text-align:center;padding:40px 10px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);max-width:min(640px,92vw);background:#3a1620;border:1px solid #ff5d73;color:#ffd7dd;padding:12px 16px;border-radius:12px;font-size:14px;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.hero img{display:block;max-height:380px;max-width:100%;border-radius:12px;border:1px solid var(--line);margin-bottom:8px}
 .estimate{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px;font-size:14px}
 </style>
 </head>
@@ -118,6 +122,19 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
               <option value="300">5:00 — documentary era</option>
             </select></div>
         </div>
+        <details id="direction">
+          <summary>Actor &amp; direction <span style="text-transform:none">(optional)</span></summary>
+          <label for="actor">Actor photo <span style="text-transform:none">(you as the presenter)</span></label>
+          <input type="text" id="actor" placeholder="~/Pictures/me.jpg  (JPG or PNG)">
+          <div class="drop" id="actorDrop">…or drop / pick a photo</div>
+          <input type="file" id="actorFile" accept=".jpg,.jpeg,.png,image/jpeg,image/png" hidden>
+          <div class="hint" id="actorHint"></div>
+          <label for="voice">Voice direction</label>
+          <textarea id="voice" rows="2" maxlength="400" placeholder="e.g. warm, unhurried, dry humor, a little raspy"></textarea>
+          <label for="stage">Stage direction</label>
+          <textarea id="stage" rows="2" maxlength="400" placeholder="e.g. always at a desk with a mug, handheld camera, plant in the background"></textarea>
+          <div class="hint">Shapes both the script and every clip's prompt.</div>
+        </details>
         <label class="toggle"><input type="checkbox" id="dry"> Dry run (no Kling credits — placeholder clips)</label>
         <label class="toggle"><input type="checkbox" id="captions" checked> Burn in captions</label>
         <label class="toggle"><input type="checkbox" id="auto"> Render immediately after the storyboard (skip approval)</label>
@@ -164,8 +181,11 @@ async function init() {
   if (![...$('#length').options].some(o=>o.value===String(META.defaults.target_seconds))) $('#length').value='210';
   $('#captions').checked = META.defaults.captions;
   if (!META.kling.has_credentials) { $('#dry').checked = true; $('#klingHint').textContent = 'No Kling credentials configured — dry runs only. Run `doctok configure` to add them.'; }
-  else $('#klingHint').textContent = `Kling ${META.kling.model} · ${META.kling.resolution} · audio ${META.kling.audio?'on':'off'} · $${META.kling.unit_price_usd}/unit`;
+  else $('#klingHint').textContent = META.kling.backend === 'mcp' ? `Kling MCP · ${META.kling.model} · ${META.kling.resolution} · audio ${META.kling.audio?'on':'off'} · billed in your Kling credits` : `Kling ${META.kling.model} · ${META.kling.resolution} · audio ${META.kling.audio?'on':'off'} · $${META.kling.unit_price_usd}/unit`;
   renderStyles();
+  $('#actorHint').textContent = META.kling.backend === 'mcp'
+    ? 'Every clip is animated from this photo, so the video stars that person. You approve the cropped photo before any clip renders. Use photos of yourself, or of people who agreed to it.'
+    : 'Actor photos need the Kling MCP backend (kling.backend = mcp); with the API backend this field is ignored and will be rejected.';
   if (META.trends) { const t = META.trends; $('#trendsHint').innerHTML = `${esc(t.source)} trend catalog · ${t.age_days} day${t.age_days===1?'':'s'} old` + (t.stale ? ' · <span class="warn">stale — run <code>doctok trends refresh</code></span>' : ''); }
   (await api('/api/generations')).forEach(g => GENS.set(g.key, g));
   renderGens();
@@ -203,8 +223,15 @@ function clipsHTML(g) {
   return c.length ? `<div class="clips">${c.map(x=>`<span class="clip c-${esc(x.status)}" title="scene ${x.index+1}: ${esc(x.status)}${x.error?' — '+esc(x.error):''}"></span>`).join('')}</div>` : '';
 }
 
+// Messages saved before the MCP backend knew about credits say "est. 0.0 Kling units (~$0.00)", which reads as "free".
+function msgText(g) {
+  const m = g.message || '';
+  return (META.kling && META.kling.backend === 'mcp' && !g.options.dry_run) ? m.replace(/est\. [\d.]+ Kling units \(~\$[\d.]+\)/, 'Kling MCP, billed in your Kling credits') : m;
+}
+
 function costHTML(g) {
-  const k = g.options.dry_run ? 'dry run' : `${(g.kling.units||0).toFixed(1)} units · $${(g.kling.cost_usd||0).toFixed(2)}${g.kling.units_reported?'':' (est.)'}`;
+  const mcp = META.kling && META.kling.backend === 'mcp';
+  const k = g.options.dry_run ? 'dry run' : mcp ? 'MCP · Kling credits' : `${(g.kling.units||0).toFixed(1)} units · $${(g.kling.cost_usd||0).toFixed(2)}${g.kling.units_reported?'':' (est.)'}`;
   return `<span>Claude <b>$${(g.claude.cost_usd||0).toFixed(4)}</b> ${esc(g.claude.billing||'')}</span><span>Kling <b>${k}</b></span>`;
 }
 
@@ -219,7 +246,7 @@ function renderGens() {
       <div class="bar"><div style="width:${Math.round((g.progress||0)*100)}%"></div></div>
       <div class="meta"><span>started <b>${g.started_at? new Date(g.started_at).toLocaleString():'—'}</b></span><span>elapsed <b>${fmt(elapsed(g))}</b></span>${costHTML(g)}
       ${g.video && g.video.duration_seconds ? `<span>length <b>${fmt(g.video.duration_seconds)}</b></span>`:''}</div>
-      ${clipsHTML(g)}${g.message?`<div class="meta">${esc(g.message)}</div>`:''}
+      ${clipsHTML(g)}${g.message?`<div class="meta">${esc(msgText(g))}</div>`:''}
     </div>`;
   }).join('');
   document.querySelectorAll('.gen').forEach(el => el.onclick = () => { SEL = el.dataset.key; renderGens(); renderDetail(true); });
@@ -253,8 +280,19 @@ async function renderDetail(force) {
   let t0 = 0;
   const scenes = sb ? sb.scenes.map((s,i)=>{ const row = `<div class="scene"><span class="t">${i+1}</span><span class="t">${fmt(t0)}</span><span><span class="beat">${esc(s.beat)}${s.dance?' · 🕺 '+esc(s.dance):''}</span><br>${esc((s.lines||[]).map(l=>l.text).join(' ') || s.action)}</span></div>`; t0 += s.seconds; return row; }).join('') : '';
   const running = g.status === 'running';
+  const mcp = (est && est.backend === 'mcp') || (META.kling && META.kling.backend === 'mcp' && !g.options.dry_run);
+  const hero = g.hero || null;
+  const heroFile = hero && hero.path ? hero.path.split('/').pop() : null;
+  const heroOK = !d.needs_hero || (hero && hero.approved);
+  const creditsTxt = est && est.credits > 0 ? `~<b>${Math.round(est.credits)}</b> Kling credits` : 'billed in your Kling credits <span class="hint">(Kling doesn\'t publish a per-clip price; set <code>kling.credits_per_second</code> for an estimate)</span>';
   const actions = [];
-  if (g.status==='awaiting_approval') actions.push(`<button class="btn primary" data-act="render">${g.options.dry_run?'Render placeholders':`🚀 Render with Kling (~${est?est.units.toFixed(1):'?'} units ≈ $${est?est.usd.toFixed(2):'?'})`}</button>`);
+  if (g.status==='awaiting_approval') {
+    if (g.options.dry_run) actions.push(`<button class="btn primary" data-act="render">Render placeholders</button>`);
+    else if (!heroOK && !heroFile) actions.push(g.options.actor_image ? `<button class="btn primary" data-act="hero">🖼 Prepare my photo as the presenter (free)</button>` : `<button class="btn primary" data-act="hero">🖼 Generate presenter image first (a few credits)</button>`);
+    else if (!heroOK) actions.push(`<button class="btn primary" data-act="hero-approve-render">✅ Use this presenter &amp; render clips</button>`, `${hero && hero.source === 'upload' ? '' : `<button class="btn" data-act="hero-regenerate">🔁 Regenerate (more credits)</button>`}`);
+    else if (mcp) actions.push(`<button class="btn primary" data-act="render">🚀 Render with Kling MCP</button>`);
+    else actions.push(`<button class="btn primary" data-act="render">🚀 Render with Kling (~${est?est.units.toFixed(1):'?'} units ≈ $${est?est.usd.toFixed(2):'?'})</button>`);
+  }
   if (g.status==='interrupted' || g.status==='failed') actions.push(`<button class="btn primary" data-act="resume">⏯ Resume</button>`);
   if (running && d.running_here) actions.push(`<button class="btn" data-act="stop">⏹ Stop</button>`);
   if (hasVideo) actions.push(`<a class="btn" href="/api/generations/${encodeURIComponent(g.key)}/files/VIDEO.mp4?download=1">⬇ Download</a>`);
@@ -265,7 +303,7 @@ async function renderDetail(force) {
   const keepVideo = lastVideoKey === videoKey && box.querySelector('video');
   const videoEl = keepVideo ? box.querySelector('video').outerHTML : null;
   const html = `<div class="dgrid">
-    <div id="vidwrap">${hasVideo ? (videoEl || `<video controls playsinline preload="metadata" src="/api/generations/${encodeURIComponent(g.key)}/files/VIDEO.mp4"></video>`) : `<div class="ph">${running?'cooking… 🍳':'no video yet'}<br><small>${esc(g.message||'')}</small></div>`}</div>
+    <div id="vidwrap">${hasVideo ? (videoEl || `<video controls playsinline preload="metadata" src="/api/generations/${encodeURIComponent(g.key)}/files/VIDEO.mp4"></video>`) : `<div class="ph">${running?'cooking… 🍳':'no video yet'}<br><small>${esc(msgText(g))}</small></div>`}</div>
     <div>
       <h2>${esc(st.emoji||'')} ${esc(g.name)} <span class="badge b-${esc(g.status)}">${esc(statusText[g.status]||g.status)}</span></h2>
       <ul class="stages">${stages}</ul>
@@ -277,12 +315,15 @@ async function renderDetail(force) {
         <tr><td>started</td><td>${g.started_at? new Date(g.started_at).toLocaleString():'—'}</td></tr>
         <tr><td>took</td><td>${fmt(elapsed(g))} wall-clock · ${fmt(g.active_seconds)} active</td></tr>
         <tr><td>claude</td><td>$${(g.claude.cost_usd||0).toFixed(4)} · ${esc(g.claude.billing||'—')} · ${esc(g.claude.model||'—')} · ${g.claude.input_tokens||0} in / ${g.claude.output_tokens||0} out</td></tr>
-        <tr><td>kling</td><td>${g.options.dry_run?'dry run (0 units)':`${(g.kling.units||0).toFixed(2)} units ≈ $${(g.kling.cost_usd||0).toFixed(2)} ${g.kling.units_reported?'(reported)':'(est.)'} · budget ${(g.kling.estimated_units||0).toFixed(1)} · ${esc(g.options.kling_model)} ${esc(g.options.resolution)}`}</td></tr>
+        <tr><td>kling</td><td>${g.options.dry_run?'dry run (0 units)':mcp?`MCP · billed in Kling credits (no per-clip price) · ${esc(g.options.kling_model)} ${esc(g.options.resolution)}`:`${(g.kling.units||0).toFixed(2)} units ≈ $${(g.kling.cost_usd||0).toFixed(2)} ${g.kling.units_reported?'(reported)':'(est.)'} · budget ${(g.kling.estimated_units||0).toFixed(1)} · ${esc(g.options.kling_model)} ${esc(g.options.resolution)}`}</td></tr>
         ${g.video && g.video.duration_seconds ? `<tr><td>video</td><td>${fmt(g.video.duration_seconds)} · ${g.video.width}×${g.video.height} · ${(g.video.size_bytes/1e6).toFixed(1)} MB</td></tr>`:''}
         ${files?`<tr><td>files</td><td>${files}</td></tr>`:''}
         ${g.error?`<tr><td>error</td><td class="fail">${esc(g.error)}</td></tr>`:''}
       </table>
-      ${est && g.status==='awaiting_approval' ? `<div class="estimate">Storyboard ready: <b>${est.scenes}</b> scenes · <b>${fmt(est.seconds)}</b> · ${est.dry_run?'dry run':`est. <b>${est.units.toFixed(1)}</b> Kling units ≈ <b>$${est.usd.toFixed(2)}</b>`}</div>`:''}
+      ${est && g.status==='awaiting_approval' ? `<div class="estimate">Storyboard ready: <b>${est.scenes}</b> scenes · <b>${fmt(est.seconds)}</b> · ${est.dry_run?'dry run':mcp?`Kling MCP · ${creditsTxt}`:`est. <b>${est.units.toFixed(1)}</b> Kling units ≈ <b>$${est.usd.toFixed(2)}</b>`}</div>`:''}
+      ${d.needs_hero && !hero && g.status==='awaiting_approval' && g.options.actor_image ? `<div class="estimate">Your actor photo is the presenter: it gets cropped to 9:16 and uploaded to Kling (free). Every clip is then animated from it. You approve the crop before any clip is rendered.</div>`:''}
+      ${d.needs_hero && !hero && g.status==='awaiting_approval' && !g.options.actor_image ? `<div class="estimate">Clips are separate videos, so first generate <b>one presenter image</b> (a few credits). Every clip is then animated from it, keeping the same person and set. You approve it before any clip is rendered.</div>`:''}
+      ${heroFile && (g.status==='awaiting_approval' || running) ? `<div class="estimate hero"><img src="/api/generations/${encodeURIComponent(g.key)}/files/${esc(heroFile)}?v=${hero.attempts||1}" alt="presenter image"><div class="hint">${hero.approved?'Approved presenter':(hero.source === 'upload' ? 'Your photo, cropped to 9:16 — check that the face is in frame' : 'Presenter image')} — every clip is animated from this frame.</div></div>`:''}
       <div class="actions">${actions.join('')}</div>
       ${sb?`<h2 style="margin-top:16px">🎬 ${esc(sb.title)}</h2><div class="scenes">${scenes}</div>`:''}
       <div class="log">${(LOGS.get(g.key)||[]).map(esc).join('<br>') || 'events will appear here'}</div>
@@ -302,8 +343,17 @@ async function renderDetail(force) {
 async function act(key, a) {
   try {
     if (a === 'delete') { if (!confirm(`Delete ${key} and its files?`)) return; await api(`/api/generations/${encodeURIComponent(key)}`, {method:'DELETE'}); return; }
+    if (a === 'hero-approve-render') { await api(`/api/generations/${encodeURIComponent(key)}/hero-approve`, {method:'POST', body:'{}'}); a = 'render'; }
     await api(`/api/generations/${encodeURIComponent(key)}/${a}`, {method:'POST', body:'{}'});
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message); }
+}
+
+// Inline error banner (alert() is swallowed by some embedded browsers, which made failed clicks look like no-ops).
+function toast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; t.onclick = () => t.remove(); document.body.appendChild(t); }
+  t.textContent = msg + '  (click to dismiss)';
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.remove(), 20000);
 }
 
 $('#newForm').onsubmit = async e => {
@@ -311,12 +361,26 @@ $('#newForm').onsubmit = async e => {
   try {
     const g = await api('/api/generations', {method:'POST', body: JSON.stringify({
       source: $('#source').value.trim(), name: $('#name').value.trim(), style: STYLE,
-      target_seconds: +$('#length').value, dry_run: $('#dry').checked, captions: $('#captions').checked, auto_render: $('#auto').checked })});
+      target_seconds: +$('#length').value, dry_run: $('#dry').checked, captions: $('#captions').checked, auto_render: $('#auto').checked,
+      actor_image: $('#actor').value.trim(), voice_direction: $('#voice').value.trim(), stage_direction: $('#stage').value.trim() })});
     GENS.set(g.key, g); SEL = g.key; renderGens(); renderDetail(true);
     $('#name').value='';
   } catch (err) { $('#formErr').textContent = err.message; }
   finally { $('#go').disabled = false; }
 };
+
+const actorDrop = $('#actorDrop'), actorFile = $('#actorFile');
+actorDrop.onclick = () => actorFile.click();
+['dragenter','dragover'].forEach(t => actorDrop.addEventListener(t, e => { e.preventDefault(); actorDrop.classList.add('over'); }));
+['dragleave','drop'].forEach(t => actorDrop.addEventListener(t, e => { e.preventDefault(); actorDrop.classList.remove('over'); }));
+actorDrop.addEventListener('drop', e => e.dataTransfer.files[0] && uploadActor(e.dataTransfer.files[0]));
+actorFile.onchange = () => actorFile.files[0] && uploadActor(actorFile.files[0]);
+async function uploadActor(f) {
+  const fd = new FormData(); fd.append('file', f);
+  actorDrop.textContent = 'uploading…';
+  try { const r = await api('/api/upload-actor', {method:'POST', body: fd}); $('#actor').value = r.path; actorDrop.textContent = '✓ ' + f.name; }
+  catch (err) { actorDrop.textContent = '…or drop / pick a photo'; toast(err.message); }
+}
 
 const drop = $('#drop'), file = $('#file');
 drop.onclick = () => file.click();
