@@ -120,10 +120,13 @@ func StoryboardSchema(spec kling.ModelSpec) json.RawMessage {
 }
 
 // DistillPrompt asks Claude to boil the doc down to teachable material.
-func DistillPrompt(doc string) string {
+func DistillPrompt(doc string) string { return DistillPromptFor(doc, 210) }
+
+// DistillPromptFor is DistillPrompt scaled to the target video length.
+func DistillPromptFor(doc string, target int) string {
 	return `You are the research brain behind a comedic Gen-Z TikTok explainer channel.
 Read the technical document below and produce DISTILL.md: a faithful, accurate
-distillation that a short-form video writer can turn into a 3–5 minute video.
+distillation that a short-form video writer can turn into a ` + lengthPhrase(target) + `.
 
 Write GitHub-flavored Markdown with exactly these sections:
 
@@ -184,10 +187,7 @@ HARD REQUIREMENTS
 - Allowed scene lengths (seconds): %s. Roughly %d scenes.
 - Each scene becomes a separate AI-generated video clip, so each scene must be
   self-contained: describe exactly what is visible in "action" and "camera".
-- Structure it as a chain of mini-chapters, each opening with its own hook, so a
-  3–5 minute video keeps retention. Put a short chapter card in "top_text" at each
-  chapter start (every ~25–40 s); otherwise top_text may be "" or a short reaction
-  sticker. top_text ≤ 6 words.
+%s
 - Characters: define 1 character (2 only if the style is a duo/skit) with a unique
   "label" and a detailed "description" (age range, hair, outfit, accessories, vibe)
   that will be pasted byte-for-byte into every clip prompt. Fictional people only.
@@ -197,7 +197,7 @@ HARD REQUIREMENTS
   concept), not the main content. Put the move in "dance" (else "").
 - "cut" is how the clip starts: "punch-in" (zoomed jump cut — use on punchlines),
   "flash" (white flash — chapter starts / reveals), "soft" (gentle fade), or "hard-cut".
-`, minS, maxS, target, durList, approxScenes)
+`, minS, maxS, target, durList, approxScenes, LengthGuidance(target))
 	if audio {
 		fmt.Fprintf(&b, `- Dialogue is voiced by the video model. Each scene has 0–2 "lines" (max 2
   speakers per scene). Keep dialogue to about %.1f words per second of scene

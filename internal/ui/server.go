@@ -127,6 +127,7 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 			"unit_price_usd": eng.Config.Kling.UnitPriceUSD, "has_credentials": klingReady(eng.Config.Kling),
 			"backend": eng.Config.Kling.Backend, "credits_per_second": eng.Config.Kling.CreditsPerSecond,
 		},
+		"lengths":      eng.LengthOptions(),
 		"stages":       engine.Stages,
 		"stage_labels": engine.StageLabels,
 	})

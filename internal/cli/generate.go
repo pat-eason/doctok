@@ -44,7 +44,7 @@ func newGenerateCmd() *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVarP(&f.name, "name", "n", "", "name for this generation (default: auto-generated)")
 	fl.StringVarP(&f.style, "style", "s", "", "video style preset (see `doctok styles`)")
-	fl.StringVarP(&f.length, "length", "l", "", "target length, e.g. 210, 3m30s, 4m (180–300s)")
+	fl.StringVarP(&f.length, "length", "l", "", "target length, e.g. 30, 45s, 1m, 90s, 2m, 3m30s (30–300s)")
 	fl.StringVar(&f.model, "model", "", "Kling model ("+strings.Join(kling.ModelIDs(), ", ")+")")
 	fl.StringVar(&f.resolution, "resolution", "", "Kling clip resolution: 1080p | 720p")
 	fl.StringVar(&f.actor, "actor", "", "photo (JPG/PNG) of the presenter; every clip is animated from it so the video stars that person (Kling MCP backend)")
@@ -69,7 +69,7 @@ func parseLength(s string) (int, error) {
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		return 0, fmt.Errorf("bad length %q (use seconds like 210 or a duration like 3m30s)", s)
+		return 0, fmt.Errorf("bad length %q (use seconds like 45 or a duration like 1m30s)", s)
 	}
 	return int(d.Seconds()), nil
 }
@@ -124,12 +124,7 @@ func runGenerate(cmd *cobra.Command, src string, f genFlags) error {
 		}
 		if !cmd.Flags().Changed("length") {
 			groups = append(groups, huh.NewGroup(
-				huh.NewSelect[string]().Title("How long?").Options(
-					huh.NewOption("3:00 — quick serve", "180"),
-					huh.NewOption("3:30 — the sweet spot", "210"),
-					huh.NewOption("4:00 — deep lore", "240"),
-					huh.NewOption("5:00 — full documentary era", "300"),
-				).Value(&lengthStr),
+				huh.NewSelect[string]().Title("How long?").Options(lengthChoices(eng)...).Value(&lengthStr).Height(11),
 			))
 		}
 		if !cmd.Flags().Changed("dry-run") {
@@ -529,4 +524,21 @@ func creditsText(est *engine.Estimate) string {
 		return fmt.Sprintf("~%.0f Kling credits (at your kling.credits_per_second)", est.Credits)
 	}
 	return "spends your Kling credits (price per clip unknown; set kling.credits_per_second for an estimate)"
+}
+
+// lengthChoices builds the interactive length picker from the engine's list, so
+// the CLI and web UI offer the same options with the same cost projections.
+func lengthChoices(eng *engine.Engine) []huh.Option[string] {
+	var opts []huh.Option[string]
+	for _, l := range eng.LengthOptions() {
+		label := l.Label
+		switch {
+		case l.Credits > 0:
+			label += fmt.Sprintf("  ~%.0f Kling credits", l.Credits)
+		case l.Units > 0:
+			label += fmt.Sprintf("  ~%.0f units ≈ $%.2f", l.Units, l.USD)
+		}
+		opts = append(opts, huh.NewOption(label, strconv.Itoa(l.Seconds)))
+	}
+	return opts
 }

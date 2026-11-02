@@ -48,6 +48,10 @@ func runConfigure(cmd *cobra.Command) error {
 		klingAuth = "aksk"
 	}
 	klingMCPServer := cfg.Kling.MCPServer
+	klingCPS := ""
+	if cfg.Kling.CreditsPerSecond > 0 {
+		klingCPS = strconv.FormatFloat(cfg.Kling.CreditsPerSecond, 'f', -1, 64)
+	}
 	klingKey, klingAK, klingSK := "", "", ""
 	klingModel := cfg.Kling.Model
 	klingRes := cfg.Kling.Resolution
@@ -105,6 +109,17 @@ func runConfigure(cmd *cobra.Command) error {
 		huh.NewGroup(
 			huh.NewNote().Title("Kling MCP").Description("Add it once: claude mcp add --scope user --transport http kling https://kling.ai/mcp\nthen run `claude` → /mcp → kling to sign in. `doctok doctor` verifies it."),
 			huh.NewInput().Title("MCP server name (blank = autodetect)").Value(&klingMCPServer),
+			huh.NewInput().Title("Kling credits per second of video (optional)").
+				Description("Kling doesn't publish per-clip credit prices through the MCP. Enter what a clip costs per second at your model/resolution to get credit estimates; blank = no estimate.").
+				Value(&klingCPS).Validate(func(s string) error {
+				if strings.TrimSpace(s) == "" {
+					return nil
+				}
+				if v, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err != nil || v < 0 {
+					return fmt.Errorf("enter a number like 10, or leave blank")
+				}
+				return nil
+			}),
 		).WithHideFunc(func() bool { return klingAuth != "mcp" }),
 		huh.NewGroup(
 			huh.NewInput().Title("Kling API key").Description(keyNote(cfg.Kling.APIKey != "", cfg.FromEnv("kling.api_key"))).
@@ -138,7 +153,7 @@ func runConfigure(cmd *cobra.Command) error {
 		huh.NewGroup(
 			huh.NewNote().Title("Video defaults"),
 			huh.NewSelect[string]().Title("Default style").Options(styleOpts...).Value(&style).Height(12),
-			huh.NewInput().Title("Target length (seconds, 180–300)").Value(&length).Validate(func(s string) error {
+			huh.NewInput().Title(fmt.Sprintf("Target length (seconds, %d–%d)", cfg.Video.MinSeconds, cfg.Video.MaxSeconds)).Value(&length).Validate(func(s string) error {
 				n, err := strconv.Atoi(strings.TrimSpace(s))
 				if err != nil || n < cfg.Video.MinSeconds || n > cfg.Video.MaxSeconds {
 					return fmt.Errorf("enter %d–%d", cfg.Video.MinSeconds, cfg.Video.MaxSeconds)
@@ -161,6 +176,7 @@ func runConfigure(cmd *cobra.Command) error {
 	if klingAuth == "mcp" {
 		cfg.Kling.Backend = engine.KlingBackendMCP
 		cfg.Kling.MCPServer = strings.TrimSpace(klingMCPServer)
+		cfg.Kling.CreditsPerSecond, _ = strconv.ParseFloat(strings.TrimSpace(klingCPS), 64)
 	} else if klingAuth == "apikey" {
 		if k := strings.TrimSpace(klingKey); k != "" {
 			cfg.Kling.APIKey = k

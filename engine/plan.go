@@ -118,7 +118,7 @@ func (e *Engine) stageDistill(ctx context.Context, g *Generation, obs Observer) 
 	}
 	e.logf(obs, g.Key, StageDistill, "Claude (%s) is reading %d KB of docs…", e.billing, len(doc)/1024)
 	res, err := e.claudeRunner(filepath.Join(g.Dir, DirWork)).Run(ctx, claude.Request{
-		Prompt:       DistillPrompt(string(doc)),
+		Prompt:       DistillPromptFor(string(doc), g.Options.TargetSeconds),
 		SystemPrompt: "You are a meticulous technical editor. Accuracy beats entertainment.",
 		Timeout:      20 * time.Minute,
 	})
@@ -163,7 +163,7 @@ func (e *Engine) stageScript(ctx context.Context, g *Generation, obs Observer) e
 	if err != nil {
 		return err
 	}
-	minS, maxS := e.Config.Video.MinSeconds, e.Config.Video.MaxSeconds
+	minS, maxS := TargetWindow(g.Options.TargetSeconds, e.Config.Video.MinSeconds, e.Config.Video.MaxSeconds)
 	prompt := StoryboardPrompt(string(distill), style, spec, g.Options.Audio, g.Options.TargetSeconds, minS, maxS)
 	prompt = withDirections(prompt, StoryboardDirections(g.Options))
 	schema := StoryboardSchema(spec)

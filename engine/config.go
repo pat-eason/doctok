@@ -30,6 +30,13 @@ const (
 	KlingStyleLegacy   = "legacy"   // POST /v1/videos/text2video (AK/SK JWT)
 )
 
+// Supported video lengths. The old defaults were 180–300s; short formats
+// (30s–2min) are supported now.
+const (
+	MinVideoSeconds = 30
+	MaxVideoSeconds = 300
+)
+
 // Kling backends: how clips are generated.
 const (
 	KlingBackendAPI = "api" // Kling Open Platform API (API key or AK/SK), pay-per-unit
@@ -103,7 +110,7 @@ func DefaultConfig() Config {
 			Backend:      KlingBackendAPI,
 			BaseURL:      "https://api-singapore.klingai.com",
 			APIStyle:     KlingStyleAuto,
-			Model:        "kling-2.6",
+			Model:        "kling-3.0",
 			Resolution:   "1080p",
 			Audio:        true,
 			Concurrency:  4,
@@ -114,8 +121,8 @@ func DefaultConfig() Config {
 		Video: VideoConfig{
 			Style:         DefaultStyleID,
 			TargetSeconds: 210,
-			MinSeconds:    180,
-			MaxSeconds:    300,
+			MinSeconds:    MinVideoSeconds,
+			MaxSeconds:    MaxVideoSeconds,
 			Captions:      true,
 			Width:         1080,
 			Height:        1920,
@@ -241,6 +248,11 @@ func (c *Config) fillDefaults() {
 	}
 	if c.Video.MaxSeconds <= 0 {
 		c.Video.MaxSeconds = d.Video.MaxSeconds
+	}
+	// Configs saved by older versions pin the old 180–300s defaults, which would
+	// reject every short video. That exact pair is treated as "never customized".
+	if c.Video.MinSeconds == 180 && c.Video.MaxSeconds == 300 {
+		c.Video.MinSeconds = MinVideoSeconds
 	}
 	if c.Video.Width <= 0 || c.Video.Height <= 0 {
 		c.Video.Width, c.Video.Height = d.Video.Width, d.Video.Height
